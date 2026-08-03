@@ -1,0 +1,1108 @@
+import React, { useEffect, useState } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { ArrowLeft, UserPlus, Search, Filter, Mail, Phone, MoreHorizontal, X, Trash2, Upload, Users, Plus } from 'lucide-react';
+import { Team, Player } from '../types';
+import { cn } from '../lib/utils';
+import { supabase } from '../lib/supabase';
+import { ImageCropper } from './ImageCropper';
+import { uploadImage } from '../lib/upload';
+
+interface TeamRosterProps {
+  team: Team;
+  season?: string;
+  onBack: () => void;
+  onSelectPlayer: (player: Player) => void;
+}
+
+const MOCK_PLAYERS: Player[] = [
+  { id: '1', name: 'Laura Martínez', number: 1, position: 'Porteras', teamId: 'FEMENINO_A', stats: { matchesPlayed: 12, goals: 0, assists: 1, yellowCards: 0, redCards: 0 } },
+  { id: '2', name: 'Carla Rodríguez', number: 4, position: 'Defensoras', teamId: 'FEMENINO_A', stats: { matchesPlayed: 11, goals: 2, assists: 0, yellowCards: 2, redCards: 0 } },
+  { id: '3', name: 'Elena Gómez', number: 10, position: 'Mediocentros', teamId: 'FEMENINO_A', stats: { matchesPlayed: 12, goals: 8, assists: 12, yellowCards: 1, redCards: 0 } },
+  { id: '4', name: 'Sofía Ruiz', number: 9, position: 'Atacantes', teamId: 'FEMENINO_A', stats: { matchesPlayed: 10, goals: 15, assists: 4, yellowCards: 0, redCards: 0 } },
+];
+
+import TacticalField from './TacticalField';
+
+export default function TeamRoster({ team, season = '2026/2027', onBack, onSelectPlayer }: TeamRosterProps) {
+  const [players, setPlayers] = useState<Player[]>(() => {
+    const key = `app_players_${season}_${team.id}`;
+    const saved = localStorage.getItem(key);
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {}
+    }
+    if (season === '2026/2027' && team.id === 'FEMENINO_A') {
+      return MOCK_PLAYERS;
+    }
+    return [];
+  });
+
+  useEffect(() => {
+    const key = `app_players_${season}_${team.id}`;
+    const saved = localStorage.getItem(key);
+    if (saved) {
+      try {
+        setPlayers(JSON.parse(saved));
+        return;
+      } catch (e) {}
+    }
+    if (season === '2026/2027' && team.id === 'FEMENINO_A') {
+      setPlayers(MOCK_PLAYERS);
+    } else {
+      setPlayers([]);
+    }
+  }, [season, team.id]);
+
+  useEffect(() => {
+    const key = `app_players_${season}_${team.id}`;
+    localStorage.setItem(key, JSON.stringify(players));
+  }, [players, season, team.id]);
+  const [loading, setLoading] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [playerToDelete, setPlayerToDelete] = useState<string | null>(null);
+  const [cropperData, setCropperData] = useState<{ image: string } | null>(null);
+  const [selectedPlayerDetail, setSelectedPlayerDetail] = useState<Player | null>(null);
+  const [isEditingPlayer, setIsEditingPlayer] = useState(false);
+  const [editingPlayerData, setEditingPlayerData] = useState<any>(null);
+  const [editCropperData, setEditCropperData] = useState<{ image: string } | null>(null);
+  const [newPlayer, setNewPlayer] = useState({ 
+    name: '', 
+    nombre: '',
+    apellidos: '',
+    number: '', 
+    dorsal: '',
+    position: '', 
+    secondPosition: '',
+    height: '',
+    demarcacion: '',
+    posicion_especifica: '',
+    fecha_nacimiento: '',
+    lateralidad: '',
+    observaciones: '',
+    image: '' 
+  });
+
+  useEffect(() => {
+    async function fetchPlayers() {
+      if (!supabase) return;
+      setLoading(true);
+      try {
+        const { data, error } = await supabase
+          .from('players')
+          .select('*')
+          .eq('teamid', team.id)
+          .order('number', { ascending: true });
+
+        if (error) {
+          if (error.code === '42P01' || error.message?.includes('fetch')) {
+            console.log('Supabase: La tabla "players" no existe o la conexión no está lista. Usando datos de ejemplo.');
+          } else {
+            throw error;
+          }
+          return;
+        }
+        if (data && data.length > 0) {
+          const mappedPlayers = data.map((p: any) => ({
+            ...p,
+            teamId: p.teamid
+          }));
+          setPlayers(mappedPlayers);
+        }
+      } catch (err: any) {
+        if (!err.message?.includes('fetch') && !err.message?.includes('URL')) {
+          console.error('Error cargando jugadoras:', err.message || err);
+        }
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchPlayers();
+  }, [team.id]);
+
+  const handleAddPlayer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const playerName = newPlayer.name || `${newPlayer.nombre || ''} ${newPlayer.apellidos || ''}`.trim();
+    const playerPos = newPlayer.position || newPlayer.demarcacion;
+    if (!playerName || !playerPos) return;
+
+    let imageUrl = newPlayer.image;
+    if (imageUrl && imageUrl.startsWith('data:')) {
+      const uploadedUrl = await uploadImage(imageUrl, 'FOTOS JUGADORAS', 'perfil');
+      if (uploadedUrl) imageUrl = uploadedUrl;
+    }
+
+    const rawNum = newPlayer.number || newPlayer.dorsal;
+    const parsedNum = (rawNum !== undefined && rawNum !== '' && !isNaN(parseInt(rawNum))) ? parseInt(rawNum) : 0;
+
+    const playerToAdd: Player = {
+      id: Math.random().toString(36).substr(2, 9),
+      name: playerName,
+      number: parsedNum,
+      position: playerPos,
+      secondPosition: newPlayer.secondPosition,
+      height: newPlayer.height,
+      teamId: team.id,
+      image: imageUrl,
+      stats: { matchesPlayed: 0, goals: 0, assists: 0, yellowCards: 0, redCards: 0 },
+      nombre: newPlayer.nombre || playerName.split(' ')[0],
+      apellidos: newPlayer.apellidos || playerName.split(' ').slice(1).join(' '),
+      dorsal: parsedNum || undefined,
+      fecha_nacimiento: newPlayer.fecha_nacimiento,
+      demarcacion: playerPos,
+      posicion_especifica: newPlayer.posicion_especifica,
+      lateralidad: newPlayer.lateralidad,
+      observaciones: newPlayer.observaciones
+    };
+
+    setPlayers(prev => [...prev, playerToAdd]);
+    
+    if (supabase) {
+      try {
+        const { error } = await supabase.from('players').insert([{
+          id: playerToAdd.id,
+          name: playerToAdd.name,
+          number: playerToAdd.number,
+          position: playerToAdd.position,
+          secondposition: playerToAdd.secondPosition,
+          height: playerToAdd.height,
+          teamid: playerToAdd.teamId,
+          image: playerToAdd.image,
+          stats: playerToAdd.stats,
+          nombre: playerToAdd.nombre,
+          apellidos: playerToAdd.apellidos,
+          dorsal: playerToAdd.dorsal,
+          fecha_nacimiento: playerToAdd.fecha_nacimiento,
+          demarcacion: playerToAdd.demarcacion,
+          posicion_especifica: playerToAdd.posicion_especifica,
+          lateralidad: playerToAdd.lateralidad,
+          observaciones: playerToAdd.observaciones
+        }]);
+        if (error) {
+          console.error('Supabase Error:', error.message, error.details);
+        }
+      } catch (err) {
+        console.error('Error de red/conexión con Supabase:', err);
+      }
+    }
+
+    setNewPlayer({ 
+      name: '', 
+      nombre: '',
+      apellidos: '',
+      number: '', 
+      dorsal: '',
+      position: '', 
+      secondPosition: '',
+      height: '',
+      demarcacion: '',
+      posicion_especifica: '',
+      fecha_nacimiento: '',
+      lateralidad: 'Diestra',
+      observaciones: '',
+      image: '' 
+    });
+    setShowAddModal(false);
+  };
+
+  const handleDeletePlayer = async (playerId: string) => {
+    // Optimistic update
+    setPlayers(prev => prev.filter(p => p.id !== playerId));
+    if (selectedPlayerDetail?.id === playerId) setSelectedPlayerDetail(null);
+    setPlayerToDelete(null);
+
+    if (supabase) {
+      try {
+        const { error } = await supabase.from('players').delete().eq('id', playerId);
+        if (error) {
+          console.error('Error eliminando de Supabase:', error.message);
+        }
+      } catch (err) {
+        console.error('Error de red al eliminar:', err);
+      }
+    }
+  };
+
+  const handleUpdatePlayer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingPlayerData || !selectedPlayerDetail) return;
+
+    let imageUrl = editingPlayerData.image;
+    if (imageUrl && imageUrl.startsWith('data:')) {
+      const uploadedUrl = await uploadImage(imageUrl, 'FOTOS JUGADORAS', 'perfil');
+      if (uploadedUrl) imageUrl = uploadedUrl;
+    }
+
+    const rawNum = editingPlayerData.number || editingPlayerData.dorsal;
+    const parsedNum = (rawNum !== undefined && rawNum !== '' && !isNaN(parseInt(rawNum))) ? parseInt(rawNum) : 0;
+
+    const updatedPlayer: Player = {
+      ...selectedPlayerDetail,
+      name: editingPlayerData.name || `${editingPlayerData.nombre || ''} ${editingPlayerData.apellidos || ''}`.trim(),
+      number: parsedNum,
+      position: editingPlayerData.position || editingPlayerData.demarcacion,
+      secondPosition: editingPlayerData.secondPosition,
+      height: editingPlayerData.height,
+      image: imageUrl,
+      nombre: editingPlayerData.nombre,
+      apellidos: editingPlayerData.apellidos,
+      dorsal: parsedNum || undefined,
+      fecha_nacimiento: editingPlayerData.fecha_nacimiento,
+      demarcacion: editingPlayerData.position || editingPlayerData.demarcacion,
+      posicion_especifica: editingPlayerData.posicion_especifica,
+      lateralidad: editingPlayerData.lateralidad,
+      observaciones: editingPlayerData.observaciones
+    };
+
+    // Update local state
+    setPlayers(prev => prev.map(p => p.id === updatedPlayer.id ? updatedPlayer : p));
+    setSelectedPlayerDetail(updatedPlayer);
+    setIsEditingPlayer(false);
+
+    if (supabase) {
+      try {
+        const { error } = await supabase
+          .from('players')
+          .update({
+            name: updatedPlayer.name,
+            number: updatedPlayer.number,
+            position: updatedPlayer.position,
+            secondposition: updatedPlayer.secondPosition,
+            height: updatedPlayer.height,
+            image: updatedPlayer.image,
+            nombre: updatedPlayer.nombre,
+            apellidos: updatedPlayer.apellidos,
+            dorsal: updatedPlayer.dorsal,
+            fecha_nacimiento: updatedPlayer.fecha_nacimiento,
+            demarcacion: updatedPlayer.demarcacion,
+            posicion_especifica: updatedPlayer.posicion_especifica,
+            lateralidad: updatedPlayer.lateralidad,
+            observaciones: updatedPlayer.observaciones
+          })
+          .eq('id', updatedPlayer.id);
+
+        if (error) console.error('Error actualizando en Supabase:', error.message);
+      } catch (err) {
+        console.error('Error de conexión al actualizar:', err);
+      }
+    }
+  };
+
+  const groupedPlayers = {
+    'Porteras': players.filter(p => ['Porteras', 'Portera'].includes(p.position)),
+    'Defensoras': players.filter(p => ['Defensoras', 'Defensa'].includes(p.position)),
+    'Mediocentros': players.filter(p => ['Mediocentros', 'Centrocampista'].includes(p.position)),
+    'Atacantes': players.filter(p => ['Atacantes', 'Delantera'].includes(p.position)),
+    'Sin Categorizar': players.filter(p => !['Porteras', 'Portera', 'Defensoras', 'Defensa', 'Mediocentros', 'Centrocampista', 'Atacantes', 'Delantera'].includes(p.position))
+  };
+
+  const positionOrder: (keyof typeof groupedPlayers)[] = ['Porteras', 'Defensoras', 'Mediocentros', 'Atacantes', 'Sin Categorizar'];
+  
+  const calculateAge = (birthday: string) => {
+    if (!birthday) return 0;
+    const birthDate = new Date(birthday);
+    const today = new Date();
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const m = today.getMonth() - birthDate.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+      age--;
+    }
+    return age;
+  };
+
+  const STAFF_ROLES = [
+    { key: 'headCoach', label: '1er Entrenador/a' },
+    { key: 'secondCoach', label: '2º Entrenador/a' },
+    { key: 'physicalTrainer', label: 'Prep. Físico' },
+    { key: 'goalkeeperCoach', label: 'Entr. Porteras' },
+    { key: 'analyst', label: 'Analista' },
+    { key: 'delegate', label: 'Delegada/o' },
+    { key: 'physio', label: 'Fisio' }
+  ];
+
+  const DEFAULT_STAFF_MAP: Record<string, any> = {
+    FEMENINO_A: {
+      headCoach: { name: 'Miky Mayans' },
+      secondCoach: { name: 'Juanmi Lladó' },
+      physicalTrainer: { name: 'Iago Alvarez' },
+      goalkeeperCoach: { name: 'Pablo Roca' },
+      analyst: { name: 'Nica Ortiz' },
+      delegate: { name: 'Marta Chavero' },
+      physio: { name: 'Alberto Marín' }
+    },
+    FEMENINO_B: {
+      headCoach: { name: 'Javier Ramos' },
+      secondCoach: { name: 'Paula Vich' },
+      physicalTrainer: { name: 'Joan Torres' },
+      goalkeeperCoach: { name: 'Marc Sans' },
+      delegate: { name: 'Antonia Coll' },
+      physio: { name: 'David Serra' }
+    },
+    FEMENINO_C: {
+      headCoach: { name: 'Marina Bestard' },
+      secondCoach: { name: 'Lucas Ferrer' },
+      physicalTrainer: { name: 'Joan Torres' },
+      delegate: { name: 'Carmen Rotger' }
+    },
+    FEMENINO_D: {
+      headCoach: { name: 'David Vidal' },
+      secondCoach: { name: 'Aina Riera' },
+      delegate: { name: 'Jaume Mayol' }
+    },
+    FEMENINO_E: {
+      headCoach: { name: 'Sonia Oliver' },
+      secondCoach: { name: 'Mateu Bennasar' },
+      delegate: { name: 'Francisca Bauzà' }
+    }
+  };
+
+  const rawStaff = (team.staff && Object.values(team.staff).some((s: any) => s?.name))
+    ? team.staff
+    : DEFAULT_STAFF_MAP[team.id] || team.staff;
+
+  const activeStaff = (team.id === 'FEMENINO_A' && rawStaff?.headCoach?.name === 'Txema Expósito')
+    ? DEFAULT_STAFF_MAP.FEMENINO_A
+    : rawStaff;
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+        <div className="flex items-center gap-4">
+          <button 
+            onClick={onBack}
+            className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-500"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </button>
+          <div>
+            <h3 className="text-xl font-bold text-slate-900">{team.name}</h3>
+            <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1">
+              <span className="text-[10px] font-bold text-sky-600 bg-sky-50 px-2 py-0.5 rounded uppercase tracking-wider">
+                {team.category}
+              </span>
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <button 
+            onClick={() => setShowAddModal(true)}
+            className="bg-sky-500 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-sky-600 transition-colors shadow-sm shadow-sky-200"
+          >
+            <UserPlus className="w-4 h-4" />
+            Añadir Jugadora
+          </button>
+        </div>
+      </div>
+
+      {/* Cuerpo Técnico */}
+      <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+        <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-6 flex items-center gap-2">
+          <MoreHorizontal className="w-4 h-4" />
+          Cuerpo Técnico
+        </h4>
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-4">
+          {STAFF_ROLES.map((role) => {
+            const member = (activeStaff as any)?.[role.key];
+            if (!member || !member.name) return null;
+            return (
+              <div key={role.key} className="flex flex-col items-center text-center space-y-2">
+                <div className="w-14 h-14 rounded-full bg-slate-100 border-2 border-white shadow-sm overflow-hidden flex items-center justify-center">
+                  {member.image ? (
+                    <img src={member.image} alt={member.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                  ) : (
+                    <span className="text-[10px] font-bold text-slate-400">{member.name.charAt(0)}</span>
+                  )}
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold text-slate-900 line-clamp-1">{member.name}</p>
+                  <p className="text-[8px] font-bold text-sky-500 uppercase tracking-tighter">{role.label}</p>
+                </div>
+              </div>
+            );
+          })}
+          {(!activeStaff || !Object.values(activeStaff).some((s: any) => s?.name)) && (
+            <div className="col-span-full py-4 text-center text-slate-400 text-xs italic">
+              Sin información del cuerpo técnico asignada.
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Players Grid Grouped by Position */}
+      <div className="space-y-8">
+        {positionOrder.map(pos => {
+          const posPlayers = groupedPlayers[pos];
+          if (posPlayers.length === 0) return null;
+
+          return (
+            <div key={pos} className="space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="h-px flex-1 bg-slate-100"></div>
+                <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em]">{pos}</h4>
+                <div className="h-px flex-1 bg-slate-100"></div>
+              </div>
+              
+              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-4">
+                {posPlayers.map(player => (
+                  <motion.div
+                    key={player.id}
+                    layoutId={player.id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="group relative"
+                  >
+                    <div 
+                      onClick={() => setSelectedPlayerDetail(player)}
+                      className="cursor-pointer space-y-2 text-center"
+                    >
+                      <div className="relative transition-all duration-300 group-hover:-translate-y-1">
+                        <div className="aspect-square rounded-full overflow-hidden bg-white border border-slate-100 shadow-sm transition-all duration-300 group-hover:shadow-md">
+                          {player.image ? (
+                            <img 
+                              src={player.image} 
+                              alt={player.name}
+                              className="w-full h-full object-cover"
+                              referrerPolicy="no-referrer"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center bg-slate-50 text-slate-200">
+                              <Users className="w-8 h-8" />
+                            </div>
+                          )}
+                          <div className="absolute inset-0 bg-sky-600/0 group-hover:bg-sky-600/5 transition-colors duration-300" />
+                        </div>
+                        
+                        {/* Number Badge - Top Left and Protruding */}
+                        {Boolean(player.number || player.dorsal) && (
+                          <div className="absolute -top-1 -left-1 w-6 h-6 bg-white rounded-full border border-slate-100 flex items-center justify-center text-[10px] font-black text-slate-900 shadow-md z-10">
+                            {player.number || player.dorsal}
+                          </div>
+                        )}
+                      </div>
+                      
+                      <div className="px-1">
+                        <h5 className="text-[10px] font-bold text-slate-900 uppercase tracking-tight group-hover:text-sky-600 transition-colors truncate">
+                          {player.name}
+                        </h5>
+                        {(player.height || player.secondPosition) && (
+                          <p className="text-[9px] text-slate-400 font-medium truncate">
+                            {[player.height, player.secondPosition].filter(Boolean).join(' • ')}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Quick Actions (only visible on hover/absolute) */}
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPlayerToDelete(player.id);
+                      }}
+                      className="absolute -top-2 -right-2 w-8 h-8 bg-white text-rose-500 rounded-full border border-slate-100 shadow-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-rose-50 z-20"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </motion.div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Tactical Visualization */}
+      <TacticalField players={players} />
+
+      {/* Empty State */}
+      {players.length === 0 && (
+        <div className="bg-white rounded-2xl border-2 border-dashed border-slate-100 p-12 text-center">
+          <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-300">
+            <Users className="w-8 h-8" />
+          </div>
+          <h3 className="text-lg font-bold text-slate-900">No hay jugadoras</h3>
+          <p className="text-sm text-slate-500 mt-1 max-w-xs mx-auto">
+            Añade jugadoras a este equipo para empezar a gestionar la plantilla.
+          </p>
+          <button 
+            onClick={() => setShowAddModal(true)}
+            className="mt-6 px-6 py-2.5 bg-sky-600 text-white text-sm font-bold rounded-xl hover:bg-sky-700 transition-colors shadow-sm inline-flex items-center gap-2"
+          >
+            <Plus className="w-4 h-4" />
+            Añadir Jugadora
+          </button>
+        </div>
+      )}
+
+      {/* Player Detail Modal */}
+      <AnimatePresence>
+        {selectedPlayerDetail && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setSelectedPlayerDetail(null)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden"
+            >
+              <button 
+                onClick={() => setSelectedPlayerDetail(null)}
+                className="absolute top-6 right-6 z-10 p-2 bg-white/80 backdrop-blur rounded-full text-slate-400 hover:text-slate-600 transition-colors shadow-sm"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              <div className="flex flex-col md:flex-row">
+                {/* Image Section */}
+                <div className="md:w-5/12 bg-slate-50 relative aspect-square md:aspect-auto">
+                  {selectedPlayerDetail.image ? (
+                    <img 
+                      src={selectedPlayerDetail.image} 
+                      alt={selectedPlayerDetail.name}
+                      className="w-full h-full object-cover"
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-slate-200">
+                      <Users className="w-24 h-24" />
+                    </div>
+                  )}
+                  {Boolean(selectedPlayerDetail.number || selectedPlayerDetail.dorsal) && (
+                    <div className="absolute top-6 left-6 w-12 h-12 bg-sky-600 text-white rounded-2xl flex items-center justify-center text-xl font-black shadow-lg">
+                      {selectedPlayerDetail.number || selectedPlayerDetail.dorsal}
+                    </div>
+                  )}
+                  
+                  {isEditingPlayer && (
+                    <label className="absolute bottom-6 right-6 p-3 bg-white text-sky-600 rounded-full shadow-xl border border-slate-100 cursor-pointer hover:bg-sky-50 transition-colors">
+                      <Upload className="w-5 h-5" />
+                      <input 
+                        type="file" 
+                        className="hidden" 
+                        accept="image/*"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            const reader = new FileReader();
+                            reader.onloadend = () => {
+                              setEditCropperData({ image: reader.result as string });
+                            };
+                            reader.readAsDataURL(file);
+                          }
+                        }}
+                      />
+                    </label>
+                  )}
+                </div>
+
+                {/* Info Section */}
+                <div className="md:w-7/12 p-8 overflow-y-auto max-h-[80vh] md:max-h-none">
+                  {isEditingPlayer ? (
+                    <form onSubmit={handleUpdatePlayer} className="space-y-6">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-lg font-black text-slate-900 uppercase tracking-tight">Editar Jugadora</h4>
+                        <div className="flex gap-2">
+                          <button 
+                            type="button"
+                            onClick={() => setIsEditingPlayer(false)}
+                            className="px-3 py-1.5 text-xs font-bold text-slate-500 hover:text-slate-700 transition-colors"
+                          >
+                            CANCELAR
+                          </button>
+                          <button 
+                            type="submit"
+                            className="px-4 py-1.5 bg-sky-600 text-white text-xs font-bold rounded-lg shadow-md hover:bg-sky-700 transition-colors"
+                          >
+                            GUARDAR
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Nombre</label>
+                          <input 
+                            required
+                            type="text"
+                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold focus:ring-2 focus:ring-sky-500 outline-none"
+                            value={editingPlayerData.nombre ?? ''}
+                            onChange={e => setEditingPlayerData((prev: any) => ({ ...prev, nombre: e.target.value }))}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Apellidos</label>
+                          <input 
+                            required
+                            type="text"
+                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold focus:ring-2 focus:ring-sky-500 outline-none"
+                            value={editingPlayerData.apellidos ?? ''}
+                            onChange={e => setEditingPlayerData((prev: any) => ({ ...prev, apellidos: e.target.value }))}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Dorsal (Opcional)</label>
+                          <input 
+                            type="number"
+                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold focus:ring-2 focus:ring-sky-500 outline-none"
+                            placeholder="Sin dorsal"
+                            value={editingPlayerData.dorsal ?? editingPlayerData.number ?? ''}
+                            onChange={e => setEditingPlayerData((prev: any) => ({ ...prev, dorsal: e.target.value, number: e.target.value }))}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Posición</label>
+                          <select 
+                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold focus:ring-2 focus:ring-sky-500 outline-none"
+                            value={editingPlayerData.position ?? ''}
+                            onChange={e => setEditingPlayerData((prev: any) => ({ ...prev, position: e.target.value, demarcacion: e.target.value }))}
+                          >
+                            <option value="Porteras">Porteras</option>
+                            <option value="Defensoras">Defensoras</option>
+                            <option value="Mediocentros">Mediocentros</option>
+                            <option value="Atacantes">Atacantes</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">P. Específica</label>
+                          <select 
+                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold focus:ring-2 focus:ring-sky-500 outline-none"
+                            value={editingPlayerData.posicion_especifica ?? ''}
+                            onChange={e => setEditingPlayerData((prev: any) => ({ ...prev, posicion_especifica: e.target.value }))}
+                          >
+                            <option value="">Seleccionar...</option>
+                            <option value="Portera">Portera</option>
+                            <option value="Lateral Derecho">Lateral Derecho</option>
+                            <option value="Central">Central</option>
+                            <option value="Lateral Izquierdo">Lateral Izquierdo</option>
+                            <option value="Mediocentro">Mediocentro</option>
+                            <option value="Mediapunta">Mediapunta</option>
+                            <option value="Extremo Derecha">Extremo Derecha</option>
+                            <option value="Extremo Izquierda">Extremo Izquierda</option>
+                            <option value="Delantera">Delantera</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Segunda Posición</label>
+                          <select 
+                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold focus:ring-2 focus:ring-sky-500 outline-none"
+                            value={editingPlayerData.secondPosition ?? ''}
+                            onChange={e => setEditingPlayerData((prev: any) => ({ ...prev, secondPosition: e.target.value }))}
+                          >
+                            <option value="">Ninguna</option>
+                            <option value="Portera">Portera</option>
+                            <option value="Lateral Derecho">Lateral Derecho</option>
+                            <option value="Central">Central</option>
+                            <option value="Lateral Izquierdo">Lateral Izquierdo</option>
+                            <option value="Mediocentro">Mediocentro</option>
+                            <option value="Mediapunta">Mediapunta</option>
+                            <option value="Extremo Derecha">Extremo Derecha</option>
+                            <option value="Extremo Izquierda">Extremo Izquierda</option>
+                            <option value="Delantera">Delantera</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">F. Nacimiento</label>
+                          <input 
+                            type="date"
+                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold focus:ring-2 focus:ring-sky-500 outline-none"
+                            value={editingPlayerData.fecha_nacimiento ?? ''}
+                            onChange={e => setEditingPlayerData((prev: any) => ({ ...prev, fecha_nacimiento: e.target.value }))}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Altura</label>
+                          <input 
+                            type="text"
+                            placeholder="Ej. 1.70 m"
+                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold focus:ring-2 focus:ring-sky-500 outline-none"
+                            value={editingPlayerData.height ?? ''}
+                            onChange={e => setEditingPlayerData((prev: any) => ({ ...prev, height: e.target.value }))}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-4">
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Lateralidad (Opcional)</label>
+                          <select 
+                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold focus:ring-2 focus:ring-sky-500 outline-none"
+                            value={editingPlayerData.lateralidad ?? ''}
+                            onChange={e => setEditingPlayerData((prev: any) => ({ ...prev, lateralidad: e.target.value }))}
+                          >
+                            <option value="">Sin lateralidad (Opcional)</option>
+                            <option value="Diestra">Diestra</option>
+                            <option value="Zurda">Zurda</option>
+                            <option value="Ambidiestra">Ambidiestra</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Observaciones</label>
+                        <textarea 
+                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold focus:ring-2 focus:ring-sky-500 outline-none h-20 resize-none"
+                          value={editingPlayerData.observaciones ?? ''}
+                          onChange={e => setEditingPlayerData((prev: any) => ({ ...prev, observaciones: e.target.value }))}
+                        />
+                      </div>
+                    </form>
+                  ) : (
+                    <div className="space-y-8">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <h4 className="text-2xl font-black text-slate-900 uppercase tracking-tight leading-tight">
+                            {selectedPlayerDetail.name}
+                          </h4>
+                          <span className="inline-block mt-2 px-3 py-1 bg-sky-50 text-sky-600 text-[10px] font-bold rounded-lg uppercase tracking-widest border border-sky-100">
+                            {selectedPlayerDetail.position} {selectedPlayerDetail.posicion_especifica ? `— ${selectedPlayerDetail.posicion_especifica}` : ''}
+                          </span>
+                        </div>
+                        <button 
+                          onClick={() => {
+                            setEditingPlayerData({ ...selectedPlayerDetail });
+                            setIsEditingPlayer(true);
+                          }}
+                          className="px-4 py-2 bg-slate-900 text-white text-[10px] font-bold rounded-xl hover:bg-slate-800 transition-colors shadow-lg shadow-slate-200 uppercase tracking-widest"
+                        >
+                          Editar Ficha
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-y-6 gap-x-8">
+                        <div>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">F. Nacimiento</p>
+                          <p className="text-sm font-bold text-slate-700">
+                            {selectedPlayerDetail.fecha_nacimiento ? (
+                              <>
+                                {new Date(selectedPlayerDetail.fecha_nacimiento).toLocaleDateString('es-ES')}
+                                <span className="ml-2 text-sky-600">
+                                  ({calculateAge(selectedPlayerDetail.fecha_nacimiento)} años)
+                                </span>
+                              </>
+                            ) : '—'}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Lateralidad</p>
+                          <p className="text-sm font-bold text-slate-700">{selectedPlayerDetail.lateralidad || '—'}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">2ª Posición</p>
+                          <p className="text-sm font-bold text-slate-700">{selectedPlayerDetail.secondPosition || '—'}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Altura</p>
+                          <p className="text-sm font-bold text-slate-700">{selectedPlayerDetail.height || '—'}</p>
+                        </div>
+                      </div>
+
+                      <div className="pt-8 border-t border-slate-100">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Ficha Técnica</p>
+                        <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-4">
+                          {selectedPlayerDetail.observaciones ? (
+                            <p className="text-xs text-slate-600 leading-relaxed italic">
+                              "{selectedPlayerDetail.observaciones}"
+                            </p>
+                          ) : (
+                            <p className="text-xs text-slate-400 italic">Sin observaciones técnicas registradas.</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {editCropperData && (
+          <ImageCropper 
+            image={editCropperData.image}
+            onCancel={() => setEditCropperData(null)}
+            onCropComplete={(croppedImage) => {
+              setEditingPlayerData((prev: any) => ({ ...prev, image: croppedImage }));
+              setEditCropperData(null);
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Modal Añadir Jugadora */}
+      <AnimatePresence>
+        {showAddModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowAddModal(false)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden"
+            >
+              <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+                <h3 className="text-lg font-bold text-slate-900">Añadir Nueva Jugadora</h3>
+                <button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-slate-600">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <form onSubmit={handleAddPlayer} className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Nombre</label>
+                    <input 
+                      autoFocus
+                      required
+                      type="text" 
+                      value={newPlayer.nombre}
+                      onChange={e => setNewPlayer(prev => ({ ...prev, nombre: e.target.value, name: `${e.target.value} ${prev.apellidos}` }))}
+                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-sky-500 outline-none"
+                      placeholder="Ej. María"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Apellidos</label>
+                    <input 
+                      required
+                      type="text" 
+                      value={newPlayer.apellidos}
+                      onChange={e => setNewPlayer(prev => ({ ...prev, apellidos: e.target.value, name: `${prev.nombre} ${e.target.value}` }))}
+                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-sky-500 outline-none"
+                      placeholder="Ej. García López"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Dorsal (Opcional)</label>
+                    <input 
+                      type="number" 
+                      value={newPlayer.dorsal ?? ''}
+                      onChange={e => setNewPlayer(prev => ({ ...prev, dorsal: e.target.value, number: e.target.value }))}
+                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-sky-500 outline-none"
+                      placeholder="Sin dorsal"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Posición</label>
+                    <select 
+                      required
+                      value={newPlayer.position ?? ''}
+                      onChange={e => setNewPlayer(prev => ({ ...prev, position: e.target.value, demarcacion: e.target.value }))}
+                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-sky-500 outline-none"
+                    >
+                      <option value="">Seleccionar...</option>
+                      <option value="Porteras">Porteras</option>
+                      <option value="Defensoras">Defensoras</option>
+                      <option value="Mediocentros">Mediocentros</option>
+                      <option value="Atacantes">Atacantes</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">P. Específica</label>
+                    <select 
+                      value={newPlayer.posicion_especifica ?? ''}
+                      onChange={e => setNewPlayer(prev => ({ ...prev, posicion_especifica: e.target.value }))}
+                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-sky-500 outline-none"
+                    >
+                      <option value="">Seleccionar...</option>
+                      <option value="Portera">Portera</option>
+                      <option value="Lateral Derecho">Lateral Derecho</option>
+                      <option value="Central">Central</option>
+                      <option value="Lateral Izquierdo">Lateral Izquierdo</option>
+                      <option value="Mediocentro">Mediocentro</option>
+                      <option value="Mediapunta">Mediapunta</option>
+                      <option value="Extremo Derecha">Extremo Derecha</option>
+                      <option value="Extremo Izquierda">Extremo Izquierda</option>
+                      <option value="Delantera">Delantera</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Lateralidad (Opcional)</label>
+                    <select 
+                      value={newPlayer.lateralidad ?? ''}
+                      onChange={e => setNewPlayer(prev => ({ ...prev, lateralidad: e.target.value }))}
+                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-sky-500 outline-none"
+                    >
+                      <option value="">Sin lateralidad (Opcional)</option>
+                      <option value="Diestra">Diestra</option>
+                      <option value="Zurda">Zurda</option>
+                      <option value="Ambidiestra">Ambidiestra</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">F. Nacimiento</label>
+                    <input 
+                      type="date" 
+                      value={newPlayer.fecha_nacimiento ?? ''}
+                      onChange={e => setNewPlayer(prev => ({ ...prev, fecha_nacimiento: e.target.value }))}
+                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-sky-500 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Segunda Posición</label>
+                    <select 
+                      value={newPlayer.secondPosition ?? ''}
+                      onChange={e => setNewPlayer(prev => ({ ...prev, secondPosition: e.target.value }))}
+                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-sky-500 outline-none"
+                    >
+                      <option value="">Ninguna</option>
+                      <option value="Portera">Portera</option>
+                      <option value="Lateral Derecho">Lateral Derecho</option>
+                      <option value="Central">Central</option>
+                      <option value="Lateral Izquierdo">Lateral Izquierdo</option>
+                      <option value="Mediocentro">Mediocentro</option>
+                      <option value="Mediapunta">Mediapunta</option>
+                      <option value="Extremo Derecha">Extremo Derecha</option>
+                      <option value="Extremo Izquierda">Extremo Izquierda</option>
+                      <option value="Delantera">Delantera</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Altura</label>
+                    <input 
+                      type="text" 
+                      placeholder="Ej. 1.70 m"
+                      value={newPlayer.height ?? ''}
+                      onChange={e => setNewPlayer(prev => ({ ...prev, height: e.target.value }))}
+                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-sky-500 outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Observaciones</label>
+                  <textarea 
+                    value={newPlayer.observaciones ?? ''}
+                    onChange={e => setNewPlayer(prev => ({ ...prev, observaciones: e.target.value }))}
+                    className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-sky-500 outline-none h-20 resize-none"
+                    placeholder="Notas adicionales..."
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Imagen de la Jugadora</label>
+                  <div className="flex gap-2">
+                    <input 
+                      type="text" 
+                      value={newPlayer.image}
+                      onChange={e => setNewPlayer(prev => ({ ...prev, image: e.target.value }))}
+                      className="flex-1 px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-sky-500 outline-none"
+                      placeholder="URL o Base64..."
+                    />
+                    <label className="px-4 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-50 cursor-pointer flex items-center gap-2 transition-colors">
+                      <Upload className="w-4 h-4" />
+                      SUBIR
+                      <input 
+                        type="file" 
+                        className="hidden" 
+                        accept="image/*"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            const reader = new FileReader();
+                            reader.onloadend = () => {
+                              setCropperData({ image: reader.result as string });
+                            };
+                            reader.readAsDataURL(file);
+                          }
+                        }}
+                      />
+                    </label>
+                  </div>
+                </div>
+                <button 
+                  type="submit"
+                  className="w-full bg-sky-500 text-white py-3 rounded-xl font-bold text-sm hover:bg-sky-600 transition-colors shadow-lg shadow-sky-100 mt-4"
+                >
+                  REGISTRAR JUGADORA
+                </button>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+      {/* Modal Confirmar Eliminación */}
+      <AnimatePresence>
+        {playerToDelete && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              onClick={() => setPlayerToDelete(null)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
+              className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl p-6 text-center"
+            >
+              <div className="w-16 h-16 bg-rose-50 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Trash2 className="w-8 h-8" />
+              </div>
+              <h3 className="text-lg font-bold text-slate-900 mb-2">¿Eliminar jugadora?</h3>
+              <p className="text-sm text-slate-500 mb-6">Esta acción no se puede deshacer. Se borrarán todos los datos de la jugadora.</p>
+              <div className="grid grid-cols-2 gap-3">
+                <button 
+                  onClick={() => setPlayerToDelete(null)}
+                  className="px-4 py-2 border border-slate-200 text-slate-600 font-bold rounded-xl text-sm hover:bg-slate-50 transition-colors"
+                >
+                  CANCELAR
+                </button>
+                <button 
+                  onClick={() => handleDeletePlayer(playerToDelete)}
+                  className="px-4 py-2 bg-rose-500 text-white font-bold rounded-xl text-sm hover:bg-rose-600 transition-colors shadow-lg shadow-rose-100"
+                >
+                  SÍ, ELIMINAR
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {cropperData && (
+          <ImageCropper 
+            image={cropperData.image}
+            onCancel={() => setCropperData(null)}
+            onCropComplete={(croppedImage) => {
+              setNewPlayer(prev => ({ ...prev, image: croppedImage }));
+              setCropperData(null);
+            }}
+          />
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+

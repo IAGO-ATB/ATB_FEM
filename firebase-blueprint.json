@@ -1,0 +1,25 @@
+{
+  "collections": {
+    "teams": {
+      "documents": {
+        "FEMENINO_A": { "name": "FEMENINO A", "category": "Senior A" },
+        "FEMENINO_B": { "name": "FEMENINO B", "category": "Senior B" },
+        "FEMENINO_C": { "name": "FEMENINO C", "category": "Juvenil A" },
+        "FEMENINO_D": { "name": "FEMENINO D", "category": "Juvenil B" },
+        "FEMENINO_E": { "name": "FEMENINO E", "category": "Cadete" }
+      }
+    },
+    "players": {
+      "documents": {}
+    },
+    "matches": {
+      "documents": {}
+    },
+    "stats": {
+      "documents": {}
+    },
+    "users": {
+      "documents": {}
+    }
+  }
+}

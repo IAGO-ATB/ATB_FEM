@@ -1,0 +1,6 @@
+{
+  "name": "Club Femenino Hub",
+  "description": "Herramienta integral para la gestión de equipos de un club deportivo femenino, incluyendo estadísticas, calendario y networking.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { Users, Calendar, BarChart2, MessageSquare, Bell, Settings, LogOut, ChevronRight, Edit2, Shield, Plus, X, Layers, ClipboardList } from 'lucide-react';
+import { Users, Calendar, BarChart2, MessageSquare, Bell, Settings, LogOut, ChevronRight, Edit2, Shield, Plus, X, Layers, ClipboardList, Loader2 } from 'lucide-react';
 import { cn } from './lib/utils';
 import TeamsView from './components/TeamsView';
 import TeamRoster from './components/TeamRoster';
@@ -10,7 +10,13 @@ import SessionsView from './components/SessionsView';
 import CalendarView from './components/CalendarView';
 import ForumView from './components/ForumView';
 import StatsView from './components/StatsView';
+import { supabase } from './lib/supabase';
+import { AuthView } from './components/AuthView';
+import { db } from './lib/firebase';
+import { doc, getDoc } from 'firebase/firestore';
 import { Team, Player } from './types';
+import { useEffect } from 'react';
+import { User } from '@supabase/supabase-js';
 
 const REAL_FEMENINO_A_STAFF = {
   headCoach: { name: 'Miky Mayans' },
@@ -83,6 +89,30 @@ const INITIAL_TEAMS: Team[] = [
 const INITIAL_SEASONS = ['2026/2027'];
 
 export default function App() {
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!supabase) {
+      setLoading(false);
+      return;
+    }
+
+    // Get initial session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      setLoading(false);
+    });
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+      setLoading(false);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
   const [activeTab, setActiveTab] = useState('equipos');
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
@@ -96,8 +126,7 @@ export default function App() {
       try {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          const filtered = parsed.filter(s => s === '2026/2027' || !['2025/2026', '2024/2025', '2023/2024'].includes(s));
-          return filtered.length > 0 ? filtered : INITIAL_SEASONS;
+          return parsed;
         }
       } catch (e) {}
     }
@@ -189,26 +218,12 @@ export default function App() {
     setShowAddSeasonModal(false);
   };
 
-  const handleTeamDropdownChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const teamId = e.target.value;
-    if (teamId === 'todas') {
-      setSelectedTeam(null);
-      setSelectedPlayer(null);
-    } else {
-      const found = currentTeams.find(t => t.id === teamId);
-      if (found) {
-        const defaultTeam = INITIAL_TEAMS.find(t => t.id === found.id);
-        const teamWithStaff: Team = {
-          ...found,
-          coach: found.coach || defaultTeam?.coach,
-          staff: (found.staff && Object.values(found.staff).some((s: any) => s?.name))
-            ? found.staff 
-            : defaultTeam?.staff
-        };
-        setSelectedTeam(teamWithStaff);
-        setSelectedPlayer(null);
-        setActiveTab('equipos');
-      }
+  const handleLogout = async () => {
+    if (!supabase) return;
+    try {
+      await supabase.auth.signOut();
+    } catch (err) {
+      console.error('Logout failed:', err);
     }
   };
 
@@ -221,29 +236,20 @@ export default function App() {
     { id: 'estadisticas', name: 'Estadísticas', icon: BarChart2 },
   ];
 
-  const isSupabaseConfigured = Boolean(
-    import.meta.env.VITE_SUPABASE_URL && 
-    import.meta.env.VITE_SUPABASE_ANON_KEY && 
-    !import.meta.env.VITE_SUPABASE_URL.includes('your-project')
-  );
+  if (loading) {
+    return (
+      <div className="h-screen w-full bg-[#0f172a] flex items-center justify-center">
+        <Loader2 className="w-12 h-12 text-sky-500 animate-spin" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <AuthView />;
+  }
 
   return (
     <div className="flex h-screen w-full bg-[#f8fafc] text-slate-800 font-sans overflow-hidden">
-      {/* Setup Warning Overlay (Optional, but helpful for development) */}
-      {!isSupabaseConfigured && (
-        <div className="fixed bottom-4 right-4 z-50 max-w-xs bg-white border border-sky-200 rounded-lg p-4 shadow-xl flex items-start gap-3">
-          <div className="w-8 h-8 bg-sky-100 rounded-full flex items-center justify-center shrink-0">
-            <Settings className="w-4 h-4 text-sky-600" />
-          </div>
-          <div>
-            <p className="text-xs font-bold text-slate-900 mb-1">Configuración Pendiente</p>
-            <p className="text-[10px] text-slate-500 leading-relaxed">
-              Conecta tu proyecto <b>ATBFEM</b> de Supabase añadiendo las claves en <b>Settings &gt; Secrets</b>.
-            </p>
-          </div>
-        </div>
-      )}
-
       {/* Sidebar Navigation */}
       <aside className="w-52 bg-[#0f172a] text-white flex flex-col shrink-0 transition-all border-r border-slate-800">
         <div className="p-3.5">
@@ -290,14 +296,23 @@ export default function App() {
           </nav>
         </div>
 
-        <div className="mt-auto p-3 bg-slate-950 border-t border-slate-800">
+        <div className="mt-auto p-3 bg-slate-950 border-t border-slate-800 space-y-3">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center border border-sky-400/60 text-xs font-black text-sky-400 shrink-0">LR</div>
+            <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center border border-sky-400/60 text-xs font-black text-sky-400 shrink-0">
+              {user.email?.charAt(0).toUpperCase() || 'U'}
+            </div>
             <div className="text-xs text-left truncate">
-              <p className="font-bold text-white text-[11px] truncate">Laura Ramos</p>
-              <p className="text-[10px] text-slate-400 truncate">Coach Directora</p>
+              <p className="font-bold text-white text-[11px] truncate">{user.user_metadata?.full_name || 'Usuario'}</p>
+              <p className="text-[10px] text-slate-400 truncate">{user.email}</p>
             </div>
           </div>
+          <button 
+            onClick={handleLogout}
+            className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 rounded-lg transition-all"
+          >
+            <LogOut className="w-4 h-4" />
+            Cerrar Sesión
+          </button>
         </div>
       </aside>
 

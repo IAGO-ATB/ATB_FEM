@@ -1,25 +1,61 @@
 {
-  "collections": {
-    "teams": {
-      "documents": {
-        "FEMENINO_A": { "name": "FEMENINO A", "category": "Senior A" },
-        "FEMENINO_B": { "name": "FEMENINO B", "category": "Senior B" },
-        "FEMENINO_C": { "name": "FEMENINO C", "category": "Juvenil A" },
-        "FEMENINO_D": { "name": "FEMENINO D", "category": "Juvenil B" },
-        "FEMENINO_E": { "name": "FEMENINO E", "category": "Cadete" }
-      }
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "User account information and roles",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "coach", "player"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email"]
     },
-    "players": {
-      "documents": {}
+    "TrainingSession": {
+      "title": "Training Session",
+      "description": "Training session details for a team",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "teamId": { "type": "string" },
+        "season": { "type": "string" },
+        "title": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "intensity": { "type": "string" },
+        "tasks": { "type": "array" },
+        "createdBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "teamId", "season", "title", "date", "intensity"]
     },
-    "matches": {
-      "documents": {}
+    "AuthorizedUser": {
+      "title": "Authorized User",
+      "description": "List of users allowed to access the app",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "format": "email" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "role": { "type": "string" },
+        "requestedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email", "status"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Public user profiles"
     },
-    "stats": {
-      "documents": {}
+    "/sessions/{sessionId}": {
+      "schema": "TrainingSession",
+      "description": "Training sessions"
     },
-    "users": {
-      "documents": {}
+    "/authorized_users/{email}": {
+      "schema": "AuthorizedUser",
+      "description": "Whitelist of authorized emails"
     }
   }
 }

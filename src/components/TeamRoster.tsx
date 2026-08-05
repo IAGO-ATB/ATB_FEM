@@ -14,50 +14,17 @@ interface TeamRosterProps {
   onSelectPlayer: (player: Player) => void;
 }
 
-const MOCK_PLAYERS: Player[] = [
-  { id: '1', name: 'Laura Martínez', number: 1, position: 'Porteras', teamId: 'FEMENINO_A', stats: { matchesPlayed: 12, goals: 0, assists: 1, yellowCards: 0, redCards: 0 } },
-  { id: '2', name: 'Carla Rodríguez', number: 4, position: 'Defensoras', teamId: 'FEMENINO_A', stats: { matchesPlayed: 11, goals: 2, assists: 0, yellowCards: 2, redCards: 0 } },
-  { id: '3', name: 'Elena Gómez', number: 10, position: 'Mediocentros', teamId: 'FEMENINO_A', stats: { matchesPlayed: 12, goals: 8, assists: 12, yellowCards: 1, redCards: 0 } },
-  { id: '4', name: 'Sofía Ruiz', number: 9, position: 'Atacantes', teamId: 'FEMENINO_A', stats: { matchesPlayed: 10, goals: 15, assists: 4, yellowCards: 0, redCards: 0 } },
-];
+const MOCK_PLAYERS: Player[] = [];
 
 import TacticalField from './TacticalField';
 
 export default function TeamRoster({ team, season = '2026/2027', onBack, onSelectPlayer }: TeamRosterProps) {
-  const [players, setPlayers] = useState<Player[]>(() => {
-    const key = `app_players_${season}_${team.id}`;
-    const saved = localStorage.getItem(key);
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {}
-    }
-    if (season === '2026/2027' && team.id === 'FEMENINO_A') {
-      return MOCK_PLAYERS;
-    }
-    return [];
-  });
+  const [players, setPlayers] = useState<Player[]>([]);
 
   useEffect(() => {
-    const key = `app_players_${season}_${team.id}`;
-    const saved = localStorage.getItem(key);
-    if (saved) {
-      try {
-        setPlayers(JSON.parse(saved));
-        return;
-      } catch (e) {}
-    }
-    if (season === '2026/2027' && team.id === 'FEMENINO_A') {
-      setPlayers(MOCK_PLAYERS);
-    } else {
-      setPlayers([]);
-    }
+    setPlayers([]);
   }, [season, team.id]);
 
-  useEffect(() => {
-    const key = `app_players_${season}_${team.id}`;
-    localStorage.setItem(key, JSON.stringify(players));
-  }, [players, season, team.id]);
   const [loading, setLoading] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [playerToDelete, setPlayerToDelete] = useState<string | null>(null);
@@ -91,7 +58,7 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
         const { data, error } = await supabase
           .from('players')
           .select('*')
-          .eq('teamid', team.id)
+          .eq('team_id', team.id)
           .order('number', { ascending: true });
 
         if (error) {
@@ -102,10 +69,11 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
           }
           return;
         }
+
         if (data && data.length > 0) {
           const mappedPlayers = data.map((p: any) => ({
             ...p,
-            teamId: p.teamid
+            teamId: p.team_id || p.teamid
           }));
           setPlayers(mappedPlayers);
         }
@@ -164,9 +132,9 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
           name: playerToAdd.name,
           number: playerToAdd.number,
           position: playerToAdd.position,
-          secondposition: playerToAdd.secondPosition,
+          second_position: playerToAdd.secondPosition,
           height: playerToAdd.height,
-          teamid: playerToAdd.teamId,
+          team_id: playerToAdd.teamId,
           image: playerToAdd.image,
           stats: playerToAdd.stats,
           nombre: playerToAdd.nombre,
@@ -267,7 +235,7 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
             name: updatedPlayer.name,
             number: updatedPlayer.number,
             position: updatedPlayer.position,
-            secondposition: updatedPlayer.secondPosition,
+            second_position: updatedPlayer.secondPosition,
             height: updatedPlayer.height,
             image: updatedPlayer.image,
             nombre: updatedPlayer.nombre,

@@ -23,6 +23,7 @@ import { cn } from '../lib/utils';
 interface LineOfSuccessionViewProps {
   season: string;
   teams: Team[];
+  selectedTeam?: Team | null;
   onSelectPlayer?: (player: Player) => void;
 }
 
@@ -78,42 +79,24 @@ const MOCK_DEFAULT_PLAYERS: Player[] = [
   { id: '9', name: 'Aina Torres', number: 8, position: 'Mediocentros', posicion_especifica: 'Mediapunta', teamId: 'FEMENINO_A', height: '1.69 m', stats: DEFAULT_STATS },
 ];
 
-export default function LineOfSuccessionView({ season, teams, onSelectPlayer }: LineOfSuccessionViewProps) {
+export default function LineOfSuccessionView({ season, teams, selectedTeam, onSelectPlayer }: LineOfSuccessionViewProps) {
   const [allPlayers, setAllPlayers] = useState<Player[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [selectedSpot, setSelectedSpot] = useState<TacticalSpot | null>(TACTICAL_SPOTS[0]); // Default POR or first
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [includeSecondary, setIncludeSecondary] = useState<boolean>(true);
   const [selectedPlayerModal, setSelectedPlayerModal] = useState<Player | null>(null);
-  const [teamFilter, setTeamFilter] = useState<string>('ALL');
+  const [teamFilter, setTeamFilter] = useState<string>(selectedTeam?.id || 'ALL');
+
+  useEffect(() => {
+    setTeamFilter(selectedTeam?.id || 'ALL');
+  }, [selectedTeam]);
 
   // Fetch all players across all teams for current season
   useEffect(() => {
     async function loadAllPlayers() {
       setLoading(true);
       const combined: Player[] = [];
-      const seasonStr = season || '2026/2027';
-
-      // Load from localStorage first for all teams
-      for (const team of teams) {
-        const key = `app_players_${seasonStr}_${team.id}`;
-        const saved = localStorage.getItem(key);
-        if (saved) {
-          try {
-            const parsed: Player[] = JSON.parse(saved);
-            if (Array.isArray(parsed)) {
-              parsed.forEach(p => {
-                combined.push({
-                  ...p,
-                  teamId: p.teamId || team.id
-                });
-              });
-            }
-          } catch (e) {}
-        } else if (seasonStr === '2026/2027' && team.id === 'FEMENINO_A') {
-          MOCK_DEFAULT_PLAYERS.forEach(p => combined.push(p));
-        }
-      }
 
       // Try fetching from Supabase if configured
       if (supabase) {
@@ -126,19 +109,13 @@ export default function LineOfSuccessionView({ season, teams, onSelectPlayer }: 
             data.forEach((p: any) => {
               const mapped: Player = {
                 ...p,
-                teamId: p.teamid || p.teamId
+                teamId: p.team_id || p.teamid || p.teamId
               };
-              // Replace or append if not present
-              const idx = combined.findIndex(item => item.id === mapped.id);
-              if (idx >= 0) {
-                combined[idx] = mapped;
-              } else {
-                combined.push(mapped);
-              }
+              combined.push(mapped);
             });
           }
         } catch (e) {
-          console.log('Supabase query fallback to local players list');
+          console.log('Error fetching from Supabase in LineOfSuccessionView');
         }
       }
 
@@ -358,7 +335,7 @@ export default function LineOfSuccessionView({ season, teams, onSelectPlayer }: 
             >
               <option value="ALL">Todos los Equipos (A - E)</option>
               {teams.map(t => (
-                <option key={t.id} value={t.id}>Solo {t.name}</option>
+                <option key={t.id} value={t.id}>Solo {t.name} ({t.category})</option>
               ))}
             </select>
           </div>

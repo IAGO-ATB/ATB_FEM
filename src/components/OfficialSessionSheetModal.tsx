@@ -1,6 +1,7 @@
 import React from 'react';
 import { X, Printer, Download, Shield, Clock, Calendar, AlertCircle } from 'lucide-react';
 import { TrainingSession, Team } from '../types';
+import { supabase } from '../lib/supabase';
 
 interface OfficialSessionSheetModalProps {
   session: TrainingSession;
@@ -21,6 +22,30 @@ const DEFAULT_MATERIALS = [
 ];
 
 export default function OfficialSessionSheetModal({ session, team, season, onClose }: OfficialSessionSheetModalProps) {
+  const [allPotentialPlayers, setAllPotentialPlayers] = React.useState<any[]>([]);
+
+  React.useEffect(() => {
+    async function loadPlayers() {
+      if (!supabase) return;
+      try {
+        const { data, error } = await supabase
+          .from('players')
+          .select('*');
+        
+        if (!error && data) {
+          setAllPotentialPlayers(data.map(p => ({
+            ...p,
+            name: p.nombre || p.name,
+            teamId: p.team_id || p.teamId
+          })));
+        }
+      } catch (e) {
+        console.error('Error fetching players in OfficialSessionSheetModal');
+      }
+    }
+    loadPlayers();
+  }, []);
+
   const handlePrint = () => {
     window.print();
   };
@@ -28,6 +53,12 @@ export default function OfficialSessionSheetModal({ session, team, season, onClo
   const unavailable = session.unavailablePlayerNames || [];
   const wildcards = session.wildcardPlayerNames || [];
   const playerStatuses = session.playerStatuses || {};
+
+  const getNameFromId = (id: string) => {
+    const found = allPotentialPlayers.find(p => p.id === id || p.id === `p_${id}` || p.id === `filial_${id}`);
+    if (found) return found.nombre || found.name;
+    return id; // Fallback to ID if name not found
+  };
 
   // Construct top player matrix list
   let allPlayers: string[] = [];
@@ -42,44 +73,24 @@ export default function OfficialSessionSheetModal({ session, team, season, onClo
     ? session.materials.map(m => m.toUpperCase()) 
     : DEFAULT_MATERIALS;
 
-  const aproximaciones = session.staffAproximaciones || [
-    {
-      coachName: 'MIKY',
-      taskTitle: 'CALENTAMIENTO (3x3+2)',
-      consigna: 'Reforzar la idea de 3-BASE-3 con gol a minis. FOCO EN MSB EN RESTO DE TAREAS. REUNIÓN INDIVIDUAL CT PAULA.',
-      comoParaQue: 'Que haya jugadoras en la BASE'
-    },
-    {
-      coachName: 'JUANMI',
-      taskTitle: '5x5+6',
-      consigna: 'Normas de la tarea (pasar por comodines, robo en campo contrario, press alto...) + FOCO MSB en todas las tareas',
-      comoParaQue: 'Con alejadas'
-    },
-    {
-      coachName: 'IAGO',
-      taskTitle: 'PARTIDO (8x8)',
-      consigna: 'IMPORTANTE: Foco en MSB en todas las tareas. Transición ofensiva rápida.',
-      comoParaQue: ''
-    },
-    {
-      coachName: 'NICA',
-      taskTitle: 'TAREA 2 (Ataque-Defensa)',
-      consigna: 'Comportamientos micro: reducir, parar, tocar, no ser superada, recuperar. IMPORTANTE: Foco en MSB.',
-      comoParaQue: 'Con cercanas'
-    },
-    {
-      coachName: 'PABLO',
-      taskTitle: 'PREPARACIÓN FÍSICA',
-      consigna: 'Aceleraciones y desaceleraciones en espacio reducido.',
-      comoParaQue: 'Control de carga RPE'
-    },
-    {
-      coachName: 'MARTA',
-      taskTitle: 'ANÁLISIS VÍDEO',
-      consigna: 'Revisión de líneas de pase e interceptación.',
-      comoParaQue: 'Alineación estructural'
-    }
-  ];
+  // Prioritize sessionStaffTasks over staffAproximaciones if they exist
+  const displayStaffTasks = session.sessionStaffTasks && session.sessionStaffTasks.length > 0
+    ? session.sessionStaffTasks.map(st => ({
+        coachName: st.staffName,
+        taskTitle: 'FOCO 1',
+        consigna: st.foco1,
+        comoParaQue: st.foco2,
+        isNewFormat: true
+      }))
+    : session.staffAproximaciones || [
+        { coachName: 'MIKY', taskTitle: 'CALENTAMIENTO', consigna: 'Reforzar la idea de 3-BASE-3 con gol a minis.', comoParaQue: 'Que haya jugadoras en la BASE' },
+        { coachName: 'JUANMI', taskTitle: '5x5+6', consigna: 'Normas de la tarea (pasar por comodines, robo en campo contrario, press alto...)', comoParaQue: 'Con alejadas' },
+        { coachName: 'IAGO', taskTitle: 'PARTIDO (8x8)', consigna: 'IMPORTANTE: Foco en MSB en todas las tareas. Transición ofensiva rápida.', comoParaQue: '' },
+        { coachName: 'NICA', taskTitle: 'TAREA 2', consigna: 'Comportamientos micro: reducir, parar, tocar, no ser superada, recuperar.', comoParaQue: 'Con cercanas' },
+        { coachName: 'PABLO', taskTitle: 'PREPARACIÓN FÍSICA', consigna: 'Aceleraciones y desaceleraciones en espacio reducido.', comoParaQue: 'Control de carga' }
+      ];
+
+  const aproximaciones = displayStaffTasks;
 
   const tasks = session.tasks && session.tasks.length > 0 ? session.tasks : [
     {
@@ -89,8 +100,9 @@ export default function OfficialSessionSheetModal({ session, team, season, onClo
       durationMin: 12,
       seriesReps: '3 x 4\'',
       coach: 'MIKY',
-      description: '3x3+2 comodines exteriores en laterales para trabajar 3-BASE-3 antes de progresar en el juego. Espacio dividido en 2 alturas con miniporterías. FOCO TAREA MCB',
-      focoMSB: 'Salto al control + defensa en bloque'
+      description: '3x3+2 comodines exteriores en laterales para trabajar 3-BASE-3 antes de progresar en el juego. Espacio dividido en 2 alturas con miniporterías.',
+      foco: 'MCB' as const,
+      tipologia: 'RONDOS' as const
     },
     {
       id: '2',
@@ -99,8 +111,9 @@ export default function OfficialSessionSheetModal({ session, team, season, onClo
       durationMin: 15,
       seriesReps: '3 x 5\'',
       coach: 'JUANMI',
-      description: '5x5+6 comodines. Espacio dividido por la mitad. Para meter gol hay que pasar por un comodín de cada lado. Robo en campo contrario + gol vale doble. FOCO MSB: Press alto, continuar presión, tocar, interrumpir.',
-      focoMSB: 'Press alto + reestructuración'
+      description: '5x5+6 comodines. Espacio dividido por la mitad. Para meter gol hay que pasar por un comodín de cada lado. Robo en campo contrario + gol vale doble.',
+      foco: 'MSB' as const,
+      tipologia: 'JUEGO DE POSICIÓN' as const
     },
     {
       id: '3',
@@ -109,8 +122,9 @@ export default function OfficialSessionSheetModal({ session, team, season, onClo
       durationMin: 20,
       seriesReps: '2 x 10\'',
       coach: 'NICA',
-      description: '7X7+2 ATAQUE DEFENSA, acción balón en diagonal y profundidad máxima, se permite este ataque y la transición del equipo rival que defiende. La transición ofensiva 10 segundos para poder marcar... FOCO MSB: Salto al control + defensa en bloque',
-      focoMSB: 'Transición ofensiva 10s'
+      description: '7X7+2 ATAQUE DEFENSA, acción balón en diagonal y profundidad máxima, se permite este ataque y la transición del equipo rival que defiende.',
+      foco: 'MIXTO' as const,
+      tipologia: 'REDUCIDOS' as const
     },
     {
       id: '4',
@@ -120,7 +134,8 @@ export default function OfficialSessionSheetModal({ session, team, season, onClo
       seriesReps: 'Partido 8x8',
       coach: 'IAGO',
       description: 'Partido 8x8 libre. Comportamientos de la semana con y sin balón.',
-      focoMSB: 'Comportamientos semanales'
+      foco: 'MIXTO' as const,
+      tipologia: 'PARTIDO CONDICIONADO' as const
     }
   ];
 
@@ -168,11 +183,13 @@ export default function OfficialSessionSheetModal({ session, team, season, onClo
           
           {/* TOP PLAYER MATRIX HEADER */}
           <div className="mb-2 border-2 border-black bg-white grid grid-cols-12 text-[10px] font-black text-center divide-x-2 divide-black">
-            {allPlayers.slice(0, 24).map((pName, idx) => {
-              const status = playerStatuses?.[pName] || (
-                unavailable.some(u => u.toUpperCase() === pName.toUpperCase() || u.toUpperCase().includes(pName.toUpperCase())) ? 'no_disponible' :
-                wildcards.some(w => w.toUpperCase() === pName.toUpperCase() || w.toUpperCase().includes(pName.toUpperCase())) ? 'comodin' : 'disponible'
+            {allPlayers.map((pId, idx) => {
+              const status = playerStatuses?.[pId] || (
+                unavailable.some(u => u.toUpperCase() === pId.toUpperCase()) ? 'no_disponible' :
+                wildcards.some(w => w.toUpperCase() === pId.toUpperCase()) ? 'comodin' : 'disponible'
               );
+              
+              const displayName = getNameFromId(pId);
 
               let cellStyle = 'bg-white text-black font-bold';
               if (status === 'no_disponible') {
@@ -183,11 +200,11 @@ export default function OfficialSessionSheetModal({ session, team, season, onClo
 
               return (
                 <div 
-                  key={`${pName}_${idx}`}
+                  key={`${pId}_${idx}`}
                   className={`p-1 border-b border-black text-[9px] truncate text-center uppercase ${cellStyle}`}
-                  title={`${pName} (${status})`}
+                  title={`${displayName} (${status})`}
                 >
-                  {pName}
+                  {displayName}
                 </div>
               );
             })}
@@ -231,9 +248,9 @@ export default function OfficialSessionSheetModal({ session, team, season, onClo
                   NO DISPONIBLES
                 </div>
                 <div className="bg-red-600 text-white text-[9px] font-black divide-y divide-red-700 text-center">
-                  {unavailable.map((un, i) => (
+                  {unavailable.map((unId, i) => (
                     <div key={i} className="py-0.5 uppercase tracking-wide">
-                      {un}
+                      {getNameFromId(unId)}
                     </div>
                   ))}
                 </div>
@@ -278,70 +295,88 @@ export default function OfficialSessionSheetModal({ session, team, season, onClo
                       <span className="text-slate-700 bg-slate-200 px-1 rounded">{task.seriesReps || `${task.durationMin || 15}'`}</span>
                     </div>
 
-                    {/* SOCCER PITCH DIAGRAM GRAPHIC */}
-                    <div className="p-1.5 bg-emerald-800 flex items-center justify-center relative min-h-[140px] border-b border-black overflow-hidden shadow-inner">
-                      {/* Tactical Pitch Lines (SVG Render) */}
-                      <svg className="w-full h-32 border border-white/60 bg-emerald-700 rounded-sm" viewBox="0 0 200 130">
-                        {/* Grass pattern lines */}
-                        <line x1="0" y1="65" x2="200" y2="65" stroke="white" strokeWidth="1.5" strokeDasharray="3,3" />
-                        <circle cx="100" cy="65" r="22" stroke="white" strokeWidth="1.5" fill="none" />
-                        <circle cx="100" cy="65" r="2" fill="white" />
-                        
-                        {/* Goal boxes */}
-                        <rect x="0" y="35" width="25" height="60" stroke="white" strokeWidth="1.5" fill="none" />
-                        <rect x="175" y="35" width="25" height="60" stroke="white" strokeWidth="1.5" fill="none" />
-
-                        {/* Mini goals */}
-                        <rect x="0" y="50" width="4" height="30" fill="white" stroke="black" strokeWidth="0.5" />
-                        <rect x="196" y="50" width="4" height="30" fill="white" stroke="black" strokeWidth="0.5" />
-
-                        {/* Players (Yellow, Blue, Red dots) */}
-                        {idx === 0 && (
-                          <>
-                            <circle cx="50" cy="40" r="5" fill="#facc15" stroke="black" strokeWidth="1" />
-                            <circle cx="50" cy="90" r="5" fill="#facc15" stroke="black" strokeWidth="1" />
-                            <circle cx="80" cy="65" r="5" fill="#facc15" stroke="black" strokeWidth="1" />
-                            <circle cx="140" cy="40" r="5" fill="#38bdf8" stroke="black" strokeWidth="1" />
-                            <circle cx="140" cy="90" r="5" fill="#38bdf8" stroke="black" strokeWidth="1" />
-                            <circle cx="110" cy="65" r="5" fill="#ef4444" stroke="black" strokeWidth="1" />
-                          </>
-                        )}
-                        {idx === 1 && (
-                          <>
-                            <circle cx="40" cy="30" r="5" fill="#ef4444" stroke="black" strokeWidth="1" />
-                            <circle cx="60" cy="70" r="5" fill="#ef4444" stroke="black" strokeWidth="1" />
-                            <circle cx="80" cy="100" r="5" fill="#ef4444" stroke="black" strokeWidth="1" />
-                            <circle cx="130" cy="30" r="5" fill="#facc15" stroke="black" strokeWidth="1" />
-                            <circle cx="150" cy="70" r="5" fill="#facc15" stroke="black" strokeWidth="1" />
-                            <circle cx="100" cy="20" r="5" fill="#38bdf8" stroke="black" strokeWidth="1" />
-                            <circle cx="100" cy="110" r="5" fill="#38bdf8" stroke="black" strokeWidth="1" />
-                          </>
-                        )}
-                        {idx >= 2 && (
-                          <>
-                            <circle cx="40" cy="45" r="5" fill="#facc15" stroke="black" strokeWidth="1" />
-                            <circle cx="70" cy="85" r="5" fill="#facc15" stroke="black" strokeWidth="1" />
-                            <circle cx="120" cy="45" r="5" fill="#38bdf8" stroke="black" strokeWidth="1" />
-                            <circle cx="150" cy="85" r="5" fill="#38bdf8" stroke="black" strokeWidth="1" />
-                            <circle cx="100" cy="65" r="4" fill="#ffffff" stroke="black" strokeWidth="1" />
-                          </>
-                        )}
-                      </svg>
-                      
-                      {/* Diagram badge overlay */}
-                      <span className="absolute top-2 left-2 bg-black/80 text-white text-[7px] font-black px-1 rounded uppercase">
-                        {task.spaceSize || 'Espacio Medido'}
-                      </span>
-                    </div>
-
-                    {/* Description Text & Coaching Points */}
-                    <div className="p-1.5 text-[8.5px] leading-tight space-y-1 bg-white text-slate-800 flex-1 flex flex-col justify-between">
-                      <p className="font-medium">{task.description}</p>
-                      {task.focoMSB && (
-                        <div className="bg-amber-50 border border-amber-200 p-1 rounded text-[8px] font-black text-amber-900">
-                          FOCO MSB: {task.focoMSB}
+                    {/* MAIN CONTENT: Text Left, Image Right */}
+                    <div className="flex flex-row border-b border-black min-h-[150px]">
+                      {/* Description Text & Coaching Points (Left) */}
+                      <div className="p-1.5 text-[8.5px] leading-tight space-y-1 bg-white text-slate-800 flex-1 border-r border-black flex flex-col justify-between">
+                        <div className="space-y-1.5">
+                          <p className="font-black text-sky-900 uppercase underline decoration-sky-200 underline-offset-2">
+                            {task.tipologia || 'S/T'} | {task.foco || 'S/F'}
+                          </p>
+                          <p className="font-medium">{task.description}</p>
                         </div>
-                      )}
+                        
+                        {/* Space Size Badge (moved here to save room on image) */}
+                        <div className="mt-auto pt-1">
+                          <span className="bg-slate-800 text-white text-[7px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter">
+                            {task.spaceSize || 'Espacio Medido'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* SOCCER PITCH DIAGRAM GRAPHIC OR IMAGE (Right) */}
+                      <div className="w-[180px] bg-emerald-800 flex items-center justify-center relative overflow-hidden shadow-inner shrink-0">
+                        {task.image ? (
+                          <img 
+                            src={task.image} 
+                            alt={task.title} 
+                            className="w-full h-full object-cover border-l border-white/40"
+                            referrerPolicy="no-referrer"
+                          />
+                        ) : (
+                          <svg className="w-full h-32 bg-emerald-700" viewBox="0 0 200 130">
+                            {/* Grass pattern lines */}
+                            <line x1="0" y1="65" x2="200" y2="65" stroke="white" strokeWidth="1.5" strokeDasharray="3,3" />
+                            <circle cx="100" cy="65" r="22" stroke="white" strokeWidth="1.5" fill="none" />
+                            <circle cx="100" cy="65" r="2" fill="white" />
+                            
+                            {/* Goal boxes */}
+                            <rect x="0" y="35" width="25" height="60" stroke="white" strokeWidth="1.5" fill="none" />
+                            <rect x="175" y="35" width="25" height="60" stroke="white" strokeWidth="1.5" fill="none" />
+
+                            {/* Mini goals */}
+                            <rect x="0" y="50" width="4" height="30" fill="white" stroke="black" strokeWidth="0.5" />
+                            <rect x="196" y="50" width="4" height="30" fill="white" stroke="black" strokeWidth="0.5" />
+
+                            {/* Players (Dots) */}
+                            {idx === 0 && (
+                              <>
+                                <circle cx="50" cy="40" r="5" fill="#facc15" stroke="black" strokeWidth="1" />
+                                <circle cx="50" cy="90" r="5" fill="#facc15" stroke="black" strokeWidth="1" />
+                                <circle cx="80" cy="65" r="5" fill="#facc15" stroke="black" strokeWidth="1" />
+                                <circle cx="140" cy="40" r="5" fill="#38bdf8" stroke="black" strokeWidth="1" />
+                                <circle cx="140" cy="90" r="5" fill="#38bdf8" stroke="black" strokeWidth="1" />
+                                <circle cx="110" cy="65" r="5" fill="#ef4444" stroke="black" strokeWidth="1" />
+                              </>
+                            )}
+                            {idx === 1 && (
+                              <>
+                                <circle cx="40" cy="30" r="5" fill="#ef4444" stroke="black" strokeWidth="1" />
+                                <circle cx="60" cy="70" r="5" fill="#ef4444" stroke="black" strokeWidth="1" />
+                                <circle cx="80" cy="100" r="5" fill="#ef4444" stroke="black" strokeWidth="1" />
+                                <circle cx="130" cy="30" r="5" fill="#facc15" stroke="black" strokeWidth="1" />
+                                <circle cx="150" cy="70" r="5" fill="#facc15" stroke="black" strokeWidth="1" />
+                                <circle cx="100" cy="20" r="5" fill="#38bdf8" stroke="black" strokeWidth="1" />
+                                <circle cx="100" cy="110" r="5" fill="#38bdf8" stroke="black" strokeWidth="1" />
+                              </>
+                            )}
+                            {idx >= 2 && (
+                              <>
+                                <circle cx="40" cy="45" r="5" fill="#facc15" stroke="black" strokeWidth="1" />
+                                <circle cx="70" cy="85" r="5" fill="#facc15" stroke="black" strokeWidth="1" />
+                                <circle cx="120" cy="45" r="5" fill="#38bdf8" stroke="black" strokeWidth="1" />
+                                <circle cx="150" cy="85" r="5" fill="#38bdf8" stroke="black" strokeWidth="1" />
+                                <circle cx="100" cy="65" r="4" fill="#ffffff" stroke="black" strokeWidth="1" />
+                              </>
+                            )}
+                          </svg>
+                        )}
+                        
+                        {/* Diagram badge overlay */}
+                        <span className="absolute top-1 right-1 bg-black/80 text-white text-[6px] font-black px-1 rounded uppercase">
+                          {idx === 0 ? 'CALENTAMIENTO' : `TAREA ${idx}`}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -440,7 +475,7 @@ export default function OfficialSessionSheetModal({ session, team, season, onClo
                     {/* Consigna / Objective Details */}
                     <div className="col-span-5 p-1.5 leading-tight flex flex-col justify-center text-slate-800">
                       <div className="font-black text-black uppercase mb-0.5 text-[8px]">
-                        {item.taskTitle}
+                        {(item as any).isNewFormat ? 'FOCO 1' : item.taskTitle}
                       </div>
                       <p className="font-semibold text-slate-700 leading-tight">
                         {item.consigna}
@@ -448,8 +483,9 @@ export default function OfficialSessionSheetModal({ session, team, season, onClo
                     </div>
 
                     {/* ¿Cómo? ¿Por/Para Qué? */}
-                    <div className="col-span-4 p-1.5 leading-tight flex items-center justify-center text-slate-900 bg-slate-50 font-bold text-center">
-                      {item.comoParaQue || '—'}
+                    <div className="col-span-4 p-1.5 leading-tight flex flex-col justify-center text-slate-900 bg-slate-50 font-bold">
+                      {(item as any).isNewFormat && <div className="font-black text-black uppercase mb-0.5 text-[8px]">FOCO 2</div>}
+                      <p className="text-center w-full">{item.comoParaQue || '—'}</p>
                     </div>
                   </div>
                 ))}

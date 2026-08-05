@@ -28,24 +28,12 @@ export default function DashboardView({ season, selectedTeam, onSelectTeam, team
             const { count } = await supabase
               .from('players')
               .select('*', { count: 'exact', head: true })
-              .eq('teamid', t.id);
+              .eq('team_id', t.id);
             sbCount = count;
           } catch (e) {}
         }
 
-        let localCount = 0;
-        const key = `app_players_${seasonStr}_${t.id}`;
-        const saved = localStorage.getItem(key);
-        if (saved) {
-          try {
-            const parsed = JSON.parse(saved);
-            if (Array.isArray(parsed)) localCount = parsed.length;
-          } catch (e) {}
-        } else if (seasonStr === '2026/2027' && t.id === 'FEMENINO_A') {
-          localCount = 4;
-        }
-
-        total += Math.max(sbCount || 0, localCount);
+        total += (sbCount || 0);
       }
 
       setTotalPlayers(total);
@@ -55,18 +43,9 @@ export default function DashboardView({ season, selectedTeam, onSelectTeam, team
   }, [season, selectedTeam, teams]);
 
   // Mock data adapted to current season and selected team
-  const matches = [
-    { id: '1', date: '04 AGO 2026', time: '18:00', rival: 'Real Madrid Fem B', location: 'Campo Son Malferit', type: 'Liga 2ª RFEF', team: 'ATB FEMENINO A' },
-    { id: '2', date: '11 AGO 2026', time: '11:30', rival: 'FC Barcelona C', location: 'Ciudad Deportiva', type: 'Liga 2ª RFEF', team: 'ATB FEMENINO A' },
-    { id: '3', date: '18 AGO 2026', time: '17:00', rival: 'RCD Espanyol B', location: 'Campo Son Malferit', type: 'Liga 2ª RFEF', team: 'ATB FEMENINO B' },
-  ].filter(m => !selectedTeam || m.team === selectedTeam.name || selectedTeam.id === 'FEMENINO_A');
+  const matches: any[] = [];
 
-  const topScorers = [
-    { name: 'Sofía Ruiz', team: 'ATB FEMENINO A', goals: 15, position: 'Delantera' },
-    { name: 'Elena Gómez', team: 'ATB FEMENINO A', goals: 8, position: 'Mediapunta' },
-    { name: 'Lucía Fernández', team: 'ATB FEMENINO B', goals: 6, position: 'Extremo Izq.' },
-    { name: 'María Torres', team: 'ATB FEMENINO C', goals: 5, position: 'Delantera' },
-  ].filter(s => !selectedTeam || s.team === selectedTeam.name);
+  const topScorers: any[] = [];
 
   return (
     <div className="space-y-6">

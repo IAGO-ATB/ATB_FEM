@@ -17,6 +17,7 @@ import {
   X, 
   Printer, 
   ChevronRight, 
+  ChevronLeft,
   Shield, 
   Target, 
   Dumbbell, 
@@ -26,17 +27,32 @@ import {
   Award,
   ChevronDown,
   Plus,
-  Users
+  Users,
+  LayoutList,
+  ImagePlus,
+  ImageIcon
 } from 'lucide-react';
-import { Team, TrainingSession, ExerciseTask, Player } from '../types';
+import { 
+  format, 
+  addMonths, 
+  subMonths, 
+  startOfMonth, 
+  endOfMonth, 
+  startOfWeek, 
+  endOfWeek, 
+  eachDayOfInterval, 
+  isSameDay, 
+  isSameMonth,
+  parseISO
+} from 'date-fns';
+import { es } from 'date-fns/locale';
+import { Team, TrainingSession, ExerciseTask, Player, SessionStaffTask } from '../types';
 import { cn } from '../lib/utils';
+import { supabase } from '../lib/supabase';
+import ImageEditorModal from './ImageEditorModal';
 import OfficialSessionSheetModal from './OfficialSessionSheetModal';
 
-const DEFAULT_SQUAD_NAMES = [
-  'SANDRA', 'ANDRE', 'FATI', 'JOANA', 'HELENA', 'MARTA', 'ANTONELLA', 'GABI', 'NEUS', 
-  'IXI', 'NADIA', 'CHLOE', 'MARINA', 'CORA', 'BLANCA', 'VÉLEZ', 'ADA', 'ROXANNE', 
-  'ORFILA', 'JULIETA', 'ABI', 'LÓPEZ', 'CARMEN', 'PAULA'
-];
+const DEFAULT_SQUAD_NAMES: string[] = [];
 
 export interface DetailedSquadPlayer {
   id: string;
@@ -46,39 +62,7 @@ export interface DetailedSquadPlayer {
   image?: string;
 }
 
-const DEFAULT_SQUAD_DETAILED: DetailedSquadPlayer[] = [
-  // PORTERAS
-  { id: '1', name: 'SANDRA TORRES', number: 1, positionCategory: 'PORTERAS' },
-  { id: '13', name: 'BLANCA NOGUERA', number: 13, positionCategory: 'PORTERAS' },
-
-  // DEFENSORAS
-  { id: '2', name: 'ANDREA ALCAIDE', number: 2, positionCategory: 'DEFENSORAS' },
-  { id: '3', name: 'HELENA VIVES', number: 3, positionCategory: 'DEFENSORAS' },
-  { id: '4', name: 'PAULA ROJAS', number: 4, positionCategory: 'DEFENSORAS' },
-  { id: '5', name: 'ROXANNE BOLDUC', number: 5, positionCategory: 'DEFENSORAS' },
-  { id: '12', name: 'MARINA CRESPO', number: 12, positionCategory: 'DEFENSORAS' },
-  { id: '15', name: 'FÁTIMA TRAVERSARO', number: 15, positionCategory: 'DEFENSORAS' },
-  { id: '17', name: 'MARTA VÉLEZ', number: 17, positionCategory: 'DEFENSORAS' },
-  { id: '21', name: 'NEREA ORFILA', number: 21, positionCategory: 'DEFENSORAS' },
-  { id: '24', name: 'JOANA VALCANERAS', number: 24, positionCategory: 'DEFENSORAS' },
-
-  // CENTROCAMPISTAS
-  { id: '6', name: 'IXI', number: 6, positionCategory: 'CENTROCAMPISTAS' },
-  { id: '8', name: 'GABI', number: 8, positionCategory: 'CENTROCAMPISTAS' },
-  { id: '10', name: 'NEUS', number: 10, positionCategory: 'CENTROCAMPISTAS' },
-  { id: '14', name: 'CORA', number: 14, positionCategory: 'CENTROCAMPISTAS' },
-  { id: '16', name: 'ANTONELLA', number: 16, positionCategory: 'CENTROCAMPISTAS' },
-  { id: '20', name: 'JULIETA', number: 20, positionCategory: 'CENTROCAMPISTAS' },
-
-  // DELANTERAS
-  { id: '7', name: 'NADIA', number: 7, positionCategory: 'DELANTERAS' },
-  { id: '9', name: 'CHLOE', number: 9, positionCategory: 'DELANTERAS' },
-  { id: '11', name: 'ADA', number: 11, positionCategory: 'DELANTERAS' },
-  { id: '18', name: 'ABI', number: 18, positionCategory: 'DELANTERAS' },
-  { id: '19', name: 'LÓPEZ', number: 19, positionCategory: 'DELANTERAS' },
-  { id: '22', name: 'CARMEN', number: 22, positionCategory: 'DELANTERAS' },
-  { id: '23', name: 'PAULA', number: 23, positionCategory: 'DELANTERAS' },
-];
+const DEFAULT_SQUAD_DETAILED: DetailedSquadPlayer[] = [];
 
 const normalizeCategory = (pos?: string): 'PORTERAS' | 'DEFENSORAS' | 'CENTROCAMPISTAS' | 'DELANTERAS' | 'OTRAS' => {
   if (!pos) return 'OTRAS';
@@ -91,29 +75,33 @@ const normalizeCategory = (pos?: string): 'PORTERAS' | 'DEFENSORAS' | 'CENTROCAM
 };
 
 const getDetailedSquadPlayersForTeam = (teamId?: string, seasonStr?: string): DetailedSquadPlayer[] => {
-  if (!teamId) return DEFAULT_SQUAD_DETAILED;
-  const key = `app_players_${seasonStr || '2026/2027'}_${teamId}`;
-  const saved = localStorage.getItem(key);
-  if (saved) {
-    try {
-      const parsed: Player[] = JSON.parse(saved);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed.map((p, i) => {
-          const rawName = p.nombre || p.name || `Jugadora ${p.number || i + 1}`;
-          const num = (p.dorsal !== undefined && p.dorsal !== null) ? p.dorsal : p.number;
-          const cat = normalizeCategory(p.demarcacion || p.position);
-          return {
-            id: p.id || `p_${i}`,
-            name: rawName,
-            number: num,
-            positionCategory: cat,
-            image: p.image
-          };
-        });
-      }
-    } catch (e) {}
+  let players: any[] = [];
+  
+  // If it's FEMENINO_A, use defaults
+  if (teamId === 'FEMENINO_A') {
+    players = DEFAULT_SQUAD_DETAILED.map(p => ({
+      id: p.id,
+      nombre: p.name.split(' ')[0],
+      apellidos: p.name.split(' ').slice(1).join(' '),
+      dorsal: p.number,
+      demarcacion: p.positionCategory,
+      image: p.image
+    }));
   }
-  return DEFAULT_SQUAD_DETAILED;
+
+  return players.map((p, i) => {
+    const rawName = p.nombre || p.name || `Jugadora ${i + 1}`;
+    const num = (p.dorsal !== undefined && p.dorsal !== null) ? p.dorsal : p.number;
+    
+    const cat = p.positionCategory || normalizeCategory(p.demarcacion || p.position);
+    return {
+      id: p.id || `p_${teamId || 'unknown'}_${i}`,
+      name: rawName,
+      number: num,
+      positionCategory: cat as any,
+      image: p.image
+    };
+  });
 };
 
 const getSquadPlayersForTeam = (teamId?: string, seasonStr?: string): string[] => {
@@ -139,11 +127,14 @@ const TEAM_CONFIG: Record<string, { code: string; label: string; badgeBg: string
 const COMMON_MATERIALS = [
   'Conos', 'Petos (2 colores)', 'Petos (3 colores)', 'Balones Oficiales', 
   'Picas', 'Mini-porterías', 'Escalera de agilidad', 'Cintas elásticas', 
-  'Vallas bajas', 'Muñecos barrera', 'Chinos / Setas', 'Cronómetro'
+  'Vallas bajas', 'Vallas altas', 'Muñecos barrera', 'Chinos / Setas'
 ];
 
 const PHASE_OPTIONS: ExerciseTask['phase'][] = [
   'Calentamiento',
+  'Tarea 1',
+  'Tarea 2',
+  'Tarea 3',
   'Parte Principal',
   'Tarea Analítica',
   'Juego de Posición',
@@ -153,22 +144,40 @@ const PHASE_OPTIONS: ExerciseTask['phase'][] = [
 
 export default function SessionsView({ season, selectedTeam, teams, onSelectTeam }: SessionsViewProps) {
   const [activeTab, setActiveTab] = useState<'create' | 'view'>('view');
+  const [displayMode, setDisplayMode] = useState<'list' | 'calendar'>('list');
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [filialTeamSearch, setFilialTeamSearch] = useState<string>('FEMENINO_B');
+
+  // Reset filial search when team changes to ensure valid selection
+  useEffect(() => {
+    if (!selectedTeam) return;
+    if (selectedTeam.id === 'FEMENINO_A') setFilialTeamSearch('FEMENINO_B');
+    else if (selectedTeam.id === 'FEMENINO_B') setFilialTeamSearch('FEMENINO_C');
+    else if (selectedTeam.id === 'FEMENINO_C') setFilialTeamSearch('FEMENINO_D');
+    else if (selectedTeam.id === 'FEMENINO_D') setFilialTeamSearch('FEMENINO_E');
+  }, [selectedTeam?.id]);
+  const [filialPlayerSearchQuery, setFilialPlayerSearchQuery] = useState('');
   const [sessions, setSessions] = useState<TrainingSession[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [dbError, setDbError] = useState<string | null>(null);
   const [selectedSessionModal, setSelectedSessionModal] = useState<TrainingSession | null>(null);
   const [selectedOfficialSheetSession, setSelectedOfficialSheetSession] = useState<TrainingSession | null>(null);
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [activeTaskTab, setActiveTaskTab] = useState<number>(0);
+
+  // Image Editor State
+  const [imageToEdit, setImageToEdit] = useState<string | null>(null);
+  const [isEditorOpen, setIsEditorOpen] = useState(false);
 
   // Form State for "Crear / Editar Sesión"
   const [formData, setFormData] = useState<{
-    title: string;
     sessionNumber: number | string;
     date: string;
     durationTotalMin: number;
     microcycle: string;
     dayType: string;
     intensity: 'Baja' | 'Media' | 'Alta' | 'Muy Alta';
-    rpe: number;
     playerStatuses: Record<string, 'disponible' | 'comodin' | 'no_disponible'>;
     objectivesTactical: string;
     objectivesPhysical: string;
@@ -176,15 +185,15 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
     selectedMaterials: string[];
     notes: string;
     tasks: ExerciseTask[];
+    filialPlayers: string[];
+    sessionStaffTasks: SessionStaffTask[];
   }>({
-    title: '',
     sessionNumber: '',
     date: new Date().toISOString().split('T')[0],
     durationTotalMin: 90,
     microcycle: 'Microciclo 1',
     dayType: 'MD-3',
     intensity: 'Alta',
-    rpe: 7,
     playerStatuses: {},
     objectivesTactical: '',
     objectivesPhysical: '',
@@ -192,41 +201,40 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
     selectedMaterials: ['Conos', 'Petos (2 colores)', 'Balones Oficiales'],
     notes: '',
     tasks: [
-      {
-        id: '1',
-        title: 'Calentamiento Dinámico y Rondo 4v1',
-        phase: 'Calentamiento',
-        durationMin: 15,
-        spaceSize: '15x15m',
-        seriesReps: '3 series x 4 min',
-        description: 'Movilidad articular activa seguido de rondo 4v1 a 1-2 toques. Cambio de defensor al perder balón.',
-        coachingPoints: 'Orientación corporal, tensión en el pase, activación comunicativa.',
-        materials: 'Petos, Conos, Balones'
-      },
-      {
-        id: '2',
-        title: 'Juego de Posición 6v6 + 3 Comodines',
-        phase: 'Juego de Posición',
-        durationMin: 25,
-        spaceSize: '35x25m',
-        seriesReps: '4 series x 5 min',
-        description: 'Conservación de balón buscando tercer hombre para progresar a zona de finalización.',
-        coachingPoints: 'Perfiles de recepción, amplitud y profundidad, ritmo de circulación.',
-        materials: 'Petos 3 colores, Balones, Chinos'
-      }
-    ]
+      { id: 't1', title: '', phase: 'Calentamiento', durationMin: 15, description: '', coach: '', foco: 'MIXTO', tipologia: 'LÚDICO' },
+      { id: 't2', title: '', phase: 'Tarea 1', durationMin: 20, description: '', coach: '', foco: 'MIXTO', tipologia: 'RONDOS' },
+      { id: 't3', title: '', phase: 'Tarea 2', durationMin: 20, description: '', coach: '', foco: 'MIXTO', tipologia: 'JUEGO DE POSICIÓN' },
+      { id: 't4', title: '', phase: 'Tarea 3', durationMin: 20, description: '', coach: '', foco: 'MIXTO', tipologia: 'PARTIDO CONDICIONADO' }
+    ],
+    filialPlayers: [],
+    sessionStaffTasks: []
   });
 
-  // Current Squad Players for selected team
-  const squadPlayerNames = React.useMemo(() => {
-    return getSquadPlayersForTeam(selectedTeam?.id, season);
+  // Current Squad Players for selected team (Detailed)
+  const squadPlayers = React.useMemo(() => {
+    return getDetailedSquadPlayersForTeam(selectedTeam?.id, season);
   }, [selectedTeam?.id, season]);
 
+  // Current Staff Members for selected team
+  const staffMembers = React.useMemo(() => {
+    if (!selectedTeam?.staff) return [];
+    const staff = selectedTeam.staff;
+    const members: { name: string; role: string; image?: string }[] = [];
+    if (staff.headCoach) members.push({ ...staff.headCoach, role: '1º Entrenador' });
+    if (staff.secondCoach) members.push({ ...staff.secondCoach, role: '2º Entrenador' });
+    if (staff.physicalTrainer) members.push({ ...staff.physicalTrainer, role: 'Prep. Físico' });
+    if (staff.goalkeeperCoach) members.push({ ...staff.goalkeeperCoach, role: 'Entr. Porteras' });
+    if (staff.analyst) members.push({ ...staff.analyst, role: 'Analista' });
+    if (staff.delegate) members.push({ ...staff.delegate, role: 'Delegado' });
+    if (staff.physio) members.push({ ...staff.physio, role: 'Fisioterapeuta' });
+    return members;
+  }, [selectedTeam?.staff]);
+
   // Handle Player Availability Click Cycle (1 click = disponible, 2 clicks = comodin, 3 clicks = no_disponible)
-  const handleTogglePlayerStatus = (pName: string) => {
+  const handleTogglePlayerStatus = (pId: string) => {
     setFormData(prev => {
       const statuses = prev.playerStatuses || {};
-      const current = statuses[pName] || 'disponible';
+      const current = statuses[pId] || 'disponible';
       let next: 'disponible' | 'comodin' | 'no_disponible' = 'disponible';
       if (current === 'disponible') {
         next = 'comodin'; // 2 clicks (yellow)
@@ -240,107 +248,117 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
         ...prev,
         playerStatuses: {
           ...statuses,
-          [pName]: next
+          [pId]: next
         }
       };
     });
   };
 
-  // Load sessions from localStorage for selectedTeam + season
+  // Load sessions from Supabase for selectedTeam + season
   useEffect(() => {
-    if (!selectedTeam) return;
-    const seasonStr = season || '2026/2027';
-    const storageKey = `app_sessions_${seasonStr}_${selectedTeam.id}`;
-    const saved = localStorage.getItem(storageKey);
-
-    if (saved) {
+    async function fetchSessions() {
+      if (!selectedTeam) return;
+      setIsLoading(true);
       try {
-        const parsed: TrainingSession[] = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          setSessions(parsed);
-          return;
+        const seasonStr = season || '2026/2027';
+        
+        if (supabase) {
+          const { data, error } = await supabase
+            .from('sessions')
+            .select('*')
+            .eq('team_id', selectedTeam.id)
+            .eq('season', seasonStr)
+            .order('date', { ascending: false });
+
+          if (error) {
+            console.error('Supabase fetch error:', error.message);
+            setSessions([]);
+          } else if (data) {
+            // Map back to TrainingSession type and deduplicate by ID
+            const mappedSessions = data.map((d: any) => ({
+              ...d,
+              teamId: d.team_id,
+              sessionNumber: d.session_number,
+              durationTotalMin: d.duration_min,
+              numPlayers: d.num_players,
+              playerStatuses: d.player_statuses,
+              objectivesTactical: d.obj_tactical,
+              objectivesPhysical: d.obj_physical,
+              objectivesTechnical: d.obj_technical,
+              sessionStaffTasks: d.staff_tasks
+            }));
+            
+            const uniqueSessions = Array.from(new Map(mappedSessions.map((s: any) => [String(s.id), s])).values()) as TrainingSession[];
+            setSessions(uniqueSessions);
+          }
         }
       } catch (e) {
-        console.error('Error al cargar sesiones:', e);
+        console.error('Error exception fetching sessions:', e);
+      } finally {
+        setIsLoading(false);
       }
     }
 
-    // Default mock session if none exists yet for selected team
-    const defaultMock: TrainingSession[] = [
-      {
-        id: 'mock-1',
-        teamId: selectedTeam.id,
-        season: seasonStr,
-        title: `Sesión #1 - Salida de Balón y Presión Tras Pérdida`,
-        sessionNumber: 1,
-        date: new Date().toISOString().split('T')[0],
-        durationTotalMin: 90,
-        microcycle: 'Microciclo 12',
-        dayType: 'MD-4',
-        intensity: 'Alta',
-        rpe: 8,
-        objectivesTactical: 'Salida limpia desde iniciación y basculación defensiva tras pérdida.',
-        objectivesPhysical: 'Resistencia a la alta intensidad (RSA) y aceleraciones cortas.',
-        objectivesTechnical: 'Pasetenso de primera intención, controles orientados.',
-        materials: ['Conos', 'Petos (2 colores)', 'Balones Oficiales', 'Picas'],
-        notes: 'Enfocar en la velocidad de reacción en los primeros 3 segundos tras perder la posesión.',
-        created_at: new Date().toISOString(),
-        tasks: [
-          {
-            id: 't1',
-            title: 'Activación con Balón y Prevención',
-            phase: 'Calentamiento',
-            durationMin: 15,
-            seriesReps: '1 serie',
-            spaceSize: '20x20m',
-            description: 'Circuitos de movilidad articular, estiramientos dinámicos y pases por parejas a diferentes distancias.',
-            coachingPoints: 'Buena técnica de golpeo con ambas piernas.'
-          },
-          {
-            id: 't2',
-            title: 'Rondo de Transición 5v2 con Presión Inmediata',
-            phase: 'Parte Principal',
-            durationMin: 25,
-            seriesReps: '4 series x 5 min',
-            spaceSize: '18x18m',
-            description: 'Al perder el balón los 5 atacantes deben apretar al instante antes de que los recuperadores conecten con la zona exterior.',
-            coachingPoints: 'Cierre de líneas de pase centrales, intensidad de acoso.'
-          },
-          {
-            id: 't3',
-            title: 'Partido Aplicado 11v11 Condicionado',
-            phase: 'Partido / Global',
-            durationMin: 35,
-            seriesReps: '2 partes x 15 min',
-            spaceSize: 'Campo Completo',
-            description: 'Salida de inicio obligatoria con portera. Gol tras recuperación en campo rival vale doble.',
-            coachingPoints: 'Mantenimiento del bloque compacto.'
-          },
-          {
-            id: 't4',
-            title: 'Vuelta a la Calma y Regenerativo',
-            phase: 'Vuelta a la Calma',
-            durationMin: 15,
-            seriesReps: '1 serie',
-            spaceSize: 'Medio Campo',
-            description: 'Trote suave regenerativo, estiramientos estáticos asistidos y rehidratación.',
-            coachingPoints: 'Normalización cardíaca.'
-          }
-        ]
-      }
-    ];
+    fetchSessions();
+  }, [selectedTeam?.id, season, supabase]);
 
-    setSessions(defaultMock);
-    localStorage.setItem(storageKey, JSON.stringify(defaultMock));
-  }, [selectedTeam, season]);
-
-  // Save Sessions Helper
-  const saveSessionsToStorage = (updatedList: TrainingSession[]) => {
+  // Save Session Helper
+  const syncSessionToSupabase = async (updatedList: TrainingSession[], lastSession?: TrainingSession) => {
     if (!selectedTeam) return;
-    const seasonStr = season || '2026/2027';
-    const storageKey = `app_sessions_${seasonStr}_${selectedTeam.id}`;
-    setSessions([...updatedList]);
-    localStorage.setItem(storageKey, JSON.stringify(updatedList));
+    
+    // Deduplicate and update local state for immediate feedback
+    const uniqueList = Array.from(new Map(updatedList.map(s => [String(s.id), s])).values());
+    setSessions(uniqueList);
+
+    if (supabase && lastSession) {
+      try {
+        console.log('🚀 Supabase Sync Start:', lastSession.id);
+        
+        // Comprehensive mapping to match the recommended SQL schema
+        const sessionToSave = {
+          id: String(lastSession.id),
+          team_id: lastSession.teamId,
+          season: lastSession.season,
+          title: lastSession.title,
+          session_number: lastSession.sessionNumber,
+          date: lastSession.date,
+          duration_min: lastSession.durationTotalMin,
+          microcycle: lastSession.microcycle,
+          day_type: lastSession.dayType,
+          intensity: lastSession.intensity,
+          num_players: lastSession.numPlayers,
+          player_statuses: lastSession.playerStatuses,
+          obj_tactical: lastSession.objectivesTactical,
+          obj_physical: lastSession.objectivesPhysical,
+          obj_technical: lastSession.objectivesTechnical,
+          materials: lastSession.materials,
+          tasks: lastSession.tasks,
+          staff_tasks: lastSession.sessionStaffTasks,
+          notes: lastSession.notes,
+          updated_at: new Date().toISOString()
+        };
+
+        const { data, error } = await supabase
+          .from('sessions')
+          .upsert([sessionToSave], { onConflict: 'id' })
+          .select();
+        
+        if (error) {
+          console.error('❌ Supabase Save Error:', error.message, error.details);
+          setDbError(`Error al guardar: ${error.message}`);
+          throw error;
+        }
+
+        if (data && data[0]) {
+          // If it was a new session (temp ID), update it with the DB ID (which is the same string in this schema, but good practice)
+          console.log('✅ Supabase Sync Success, ID:', data[0].id);
+        }
+        
+        setDbError(null);
+      } catch (e: any) {
+        console.error('💥 Sync Exception:', e);
+      }
+    }
   };
 
   // Handle Create / Update Form Submit
@@ -348,51 +366,54 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
     e.preventDefault();
     if (!selectedTeam) return;
 
-    if (!formData.title.trim()) {
-      alert('Por favor, introduce un título para la sesión.');
+    if (!formData.sessionNumber) {
+      alert('Por favor, introduce el Nº de Sesión.');
       return;
     }
 
     const seasonStr = season || '2026/2027';
 
-    // Calculate player availability breakdowns
+    // Calculate player availability breakdowns (Squad + Filial) using IDs
     const statuses = formData.playerStatuses || {};
-    const availablePlayerNames = squadPlayerNames.filter(
-      name => (statuses[name] || 'disponible') === 'disponible'
+    const allRelevantPlayerIds = [...squadPlayers.map(p => p.id), ...formData.filialPlayers];
+
+    const availablePlayerIds = allRelevantPlayerIds.filter(
+      id => (statuses[id] || 'disponible') === 'disponible'
     );
-    const wildcardPlayerNames = squadPlayerNames.filter(
-      name => statuses[name] === 'comodin'
+    const wildcardPlayerIds = allRelevantPlayerIds.filter(
+      id => statuses[id] === 'comodin'
     );
-    const unavailablePlayerNames = squadPlayerNames.filter(
-      name => statuses[name] === 'no_disponible'
+    const unavailablePlayerIds = allRelevantPlayerIds.filter(
+      id => statuses[id] === 'no_disponible'
     );
 
-    const numPlayers = wildcardPlayerNames.length > 0
-      ? `${availablePlayerNames.length}+${wildcardPlayerNames.length}`
-      : `${availablePlayerNames.length}`;
+    const numPlayers = wildcardPlayerIds.length > 0
+      ? `${availablePlayerIds.length}+${wildcardPlayerIds.length}`
+      : `${availablePlayerIds.length}`;
 
     const newSession: TrainingSession = {
-      id: editingSessionId || `session_${Date.now()}`,
+      id: editingSessionId || `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       teamId: selectedTeam.id,
       season: seasonStr,
-      title: formData.title.trim(),
-      sessionNumber: Number(formData.sessionNumber) || undefined,
+      title: `SESIÓN Nº${formData.sessionNumber}`,
+      sessionNumber: Number(formData.sessionNumber),
       date: formData.date,
       durationTotalMin: Number(formData.durationTotalMin) || 90,
       microcycle: formData.microcycle,
       dayType: formData.dayType,
       intensity: formData.intensity,
-      rpe: Number(formData.rpe),
       numPlayers,
-      availablePlayerNames,
-      wildcardPlayerNames,
-      unavailablePlayerNames,
+      availablePlayerNames: availablePlayerIds, // Note: We store IDs here for robustness
+      wildcardPlayerNames: wildcardPlayerIds,
+      unavailablePlayerNames: unavailablePlayerIds,
+      filialPlayerNames: formData.filialPlayers,
       playerStatuses: formData.playerStatuses,
       objectivesTactical: formData.objectivesTactical,
       objectivesPhysical: formData.objectivesPhysical,
       objectivesTechnical: formData.objectivesTechnical,
       materials: formData.selectedMaterials,
       tasks: formData.tasks,
+      sessionStaffTasks: formData.sessionStaffTasks,
       notes: formData.notes,
       created_at: new Date().toISOString()
     };
@@ -406,7 +427,7 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
       setSuccessMessage('¡Sesión registrada correctamente para este equipo!');
     }
 
-    saveSessionsToStorage(updatedList);
+    syncSessionToSupabase(updatedList, newSession);
     setEditingSessionId(null);
     resetForm();
     setActiveTab('view');
@@ -414,21 +435,66 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
     setTimeout(() => setSuccessMessage(null), 4000);
   };
 
+  const handleDeleteSession = async (sessionId: string) => {
+    if (!selectedTeam || !sessionId) {
+      console.warn('❌ Cannot delete: missing team or sessionId', { selectedTeam, sessionId });
+      return;
+    }
+    
+    if (!confirm('¿Estás seguro de que deseas eliminar esta sesión permanentemente? Esta acción no se puede deshacer.')) return;
+
+    console.log('🗑️ Attempting to delete session:', sessionId);
+
+    // Optimistic UI update
+    const previousSessions = [...sessions];
+    const updatedList = sessions.filter(s => String(s.id) !== String(sessionId));
+    setSessions(updatedList);
+
+    if (supabase) {
+      try {
+        const { error } = await supabase
+          .from('sessions')
+          .delete()
+          .eq('id', String(sessionId));
+        
+        if (error) {
+          console.error('❌ Supabase Delete Error:', error.message, error.details);
+          setSessions(previousSessions);
+          alert(`Error al eliminar de la base de datos: ${error.message}`);
+          return;
+        }
+        console.log('✅ Session deleted successfully from Supabase');
+      } catch (e: any) {
+        console.error('💥 Delete Exception:', e);
+        setSessions(previousSessions);
+        alert(`Error inesperado: ${e.message}`);
+        return;
+      }
+    } else {
+      console.warn('⚠️ Supabase client not available');
+    }
+
+    setSuccessMessage('Sesión eliminada correctamente');
+    setTimeout(() => setSuccessMessage(null), 3000);
+
+    if (selectedSessionModal && String(selectedSessionModal.id) === String(sessionId)) {
+      setSelectedSessionModal(null);
+    }
+  };
+
   const resetForm = () => {
     const defaultStatuses: Record<string, 'disponible' | 'comodin' | 'no_disponible'> = {};
-    squadPlayerNames.forEach(name => {
-      defaultStatuses[name] = 'disponible';
+    squadPlayers.forEach(p => {
+      defaultStatuses[p.id] = 'disponible';
     });
 
     setFormData({
-      title: '',
       sessionNumber: '',
       date: new Date().toISOString().split('T')[0],
       durationTotalMin: 90,
       microcycle: 'Microciclo 1',
       dayType: 'MD-3',
       intensity: 'Alta',
-      rpe: 7,
       playerStatuses: defaultStatuses,
       objectivesTactical: '',
       objectivesPhysical: '',
@@ -436,41 +502,14 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
       selectedMaterials: ['Conos', 'Petos (2 colores)', 'Balones Oficiales'],
       notes: '',
       tasks: [
-        {
-          id: Date.now().toString(),
-          title: 'Calentamiento Adaptado',
-          phase: 'Calentamiento',
-          durationMin: 15,
-          seriesReps: '1 serie',
-          spaceSize: '20x20m',
-          description: 'Activación con balón y rueda de pases.',
-          coachingPoints: 'Calidad de pase.'
-        }
-      ]
+        { id: 't1', title: '', phase: 'Calentamiento', durationMin: 15, description: '', coach: '', foco: 'MIXTO', tipologia: 'LÚDICO' },
+        { id: 't2', title: '', phase: 'Tarea 1', durationMin: 20, description: '', coach: '', foco: 'MIXTO', tipologia: 'RONDOS' },
+        { id: 't3', title: '', phase: 'Tarea 2', durationMin: 20, description: '', coach: '', foco: 'MIXTO', tipologia: 'JUEGO DE POSICIÓN' },
+        { id: 't4', title: '', phase: 'Tarea 3', durationMin: 20, description: '', coach: '', foco: 'MIXTO', tipologia: 'PARTIDO CONDICIONADO' }
+      ],
+      filialPlayers: [],
+      sessionStaffTasks: []
     });
-  };
-
-  // Add Exercise Task to Form
-  const handleAddTask = () => {
-    const newTask: ExerciseTask = {
-      id: Date.now().toString(),
-      title: `Ejercicio #${formData.tasks.length + 1}`,
-      phase: 'Parte Principal',
-      durationMin: 20,
-      seriesReps: '3 series x 6 min',
-      spaceSize: 'Medio Campo',
-      description: '',
-      coachingPoints: ''
-    };
-    setFormData(prev => ({ ...prev, tasks: [...prev.tasks, newTask] }));
-  };
-
-  // Remove Task
-  const handleRemoveTask = (taskId: string) => {
-    setFormData(prev => ({
-      ...prev,
-      tasks: prev.tasks.filter(t => t.id !== taskId)
-    }));
   };
 
   // Edit Existing Session
@@ -485,44 +524,45 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
     } else {
       const unav = session.unavailablePlayerNames || [];
       const wild = session.wildcardPlayerNames || [];
-      squadPlayerNames.forEach(name => {
-        if (unav.some(u => u.toUpperCase() === name.toUpperCase())) {
-          resolvedStatuses[name] = 'no_disponible';
-        } else if (wild.some(w => w.toUpperCase() === name.toUpperCase())) {
-          resolvedStatuses[name] = 'comodin';
+      squadPlayers.forEach(p => {
+        // Fallback for older sessions that might have used names
+        if (unav.some(u => u.toUpperCase() === p.id.toUpperCase() || u.toUpperCase() === p.name.toUpperCase())) {
+          resolvedStatuses[p.id] = 'no_disponible';
+        } else if (wild.some(w => w.toUpperCase() === p.id.toUpperCase() || w.toUpperCase() === p.name.toUpperCase())) {
+          resolvedStatuses[p.id] = 'comodin';
         } else {
-          resolvedStatuses[name] = 'disponible';
+          resolvedStatuses[p.id] = 'disponible';
         }
       });
     }
 
+    // Ensure exactly 4 tasks exist in the form (Calentamiento + 3 Tasks)
+    const existingTasks = session.tasks || [];
+    const normalizedTasks: ExerciseTask[] = [
+      existingTasks.find(t => t.phase === 'Calentamiento') || { id: 't1', title: '', phase: 'Calentamiento', durationMin: 15, description: '', coach: '', foco: 'MIXTO', tipologia: 'LÚDICO' },
+      existingTasks.find(t => t.phase === 'Tarea 1') || { id: 't2', title: '', phase: 'Tarea 1', durationMin: 20, description: '', coach: '', foco: 'MIXTO', tipologia: 'RONDOS' },
+      existingTasks.find(t => t.phase === 'Tarea 2') || { id: 't3', title: '', phase: 'Tarea 2', durationMin: 20, description: '', coach: '', foco: 'MIXTO', tipologia: 'JUEGO DE POSICIÓN' },
+      existingTasks.find(t => t.phase === 'Tarea 3') || { id: 't4', title: '', phase: 'Tarea 3', durationMin: 20, description: '', coach: '', foco: 'MIXTO', tipologia: 'PARTIDO CONDICIONADO' }
+    ];
+
     setFormData({
-      title: session.title,
       sessionNumber: session.sessionNumber || '',
       date: session.date,
       durationTotalMin: session.durationTotalMin,
       microcycle: session.microcycle || 'Microciclo 1',
       dayType: session.dayType || 'MD-3',
       intensity: session.intensity || 'Alta',
-      rpe: session.rpe || 7,
       playerStatuses: resolvedStatuses,
       objectivesTactical: session.objectivesTactical || '',
       objectivesPhysical: session.objectivesPhysical || '',
       objectivesTechnical: session.objectivesTechnical || '',
       selectedMaterials: session.materials || [],
       notes: session.notes || '',
-      tasks: session.tasks || []
+      tasks: normalizedTasks,
+      filialPlayers: session.filialPlayerNames || [],
+      sessionStaffTasks: session.sessionStaffTasks || []
     });
     setActiveTab('create');
-  };
-
-  // Delete Session
-  const handleDeleteSession = (id: string) => {
-    const updated = sessions.filter(s => s.id !== id);
-    saveSessionsToStorage(updated);
-    if (selectedSessionModal?.id === id) setSelectedSessionModal(null);
-    setSuccessMessage('Sesión eliminada correctamente');
-    setTimeout(() => setSuccessMessage(null), 3000);
   };
 
   // Toggle Material Selection
@@ -541,12 +581,12 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
   return (
     <div className="space-y-6 pb-16">
       {/* Dark Integrated Header Section */}
-      <div className="bg-[#0f172a] rounded-3xl p-8 border border-white/5 shadow-2xl relative overflow-hidden">
+      <div className="bg-[#0f172a] rounded-3xl py-6 px-8 border border-white/5 shadow-2xl relative overflow-hidden">
         {/* Subtle background glow/gradient */}
         <div className="absolute top-0 right-0 w-1/3 h-full bg-gradient-to-l from-sky-500/10 to-transparent opacity-50 pointer-events-none"></div>
         
-        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-8">
-          <div className="space-y-4 max-w-3xl">
+        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+          <div className="space-y-3 max-w-3xl">
             <div className="flex items-center gap-3 flex-wrap">
               <span className="px-4 py-1 bg-sky-500/20 border border-sky-400/30 text-sky-300 text-[11px] font-black rounded-full uppercase tracking-[0.1em] shadow-sm">
                 PLANIFICACIÓN METODOLÓGICA
@@ -554,17 +594,13 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
               <span className="text-[12px] font-bold text-slate-400 tracking-tight">| Temporada {season || '2026/2027'}</span>
             </div>
 
-            <div className="space-y-2">
-              <h1 className="text-4xl md:text-5xl font-black text-white tracking-tight flex items-center gap-4">
+            <div className="space-y-1">
+              <h1 className="text-3xl md:text-4xl font-black text-white tracking-tight flex items-center gap-4">
                 <div className="p-2 bg-sky-500 rounded-xl shadow-lg shadow-sky-500/20">
                   <ClipboardCheck className="w-8 h-8 text-white" />
                 </div>
                 SESIONES DE ENTRENAMIENTO
               </h1>
-              <p className="text-slate-400 text-base font-medium leading-relaxed max-w-2xl">
-                Diseño de tareas, control de carga RPE, objetivos táctico-físicos y archivo histórico de sesiones. 
-                El registro es completamente independiente para cada plantilla.
-              </p>
             </div>
           </div>
 
@@ -608,7 +644,12 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
             <select
               value={selectedTeam?.id || ''}
               onChange={(e) => {
-                const team = teams.find(t => t.id === e.target.value);
+                const val = e.target.value;
+                if (!val) {
+                  // If onSelectTeam doesn't handle null, maybe we should just do nothing
+                  return;
+                }
+                const team = teams.find(t => String(t.id) === String(val));
                 if (team) onSelectTeam(team);
               }}
               className="w-full pl-4 pr-10 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-black text-slate-900 focus:ring-2 focus:ring-sky-500 outline-none appearance-none cursor-pointer shadow-sm hover:border-slate-300 transition-all"
@@ -616,7 +657,7 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
               <option value="" disabled>— Seleccionar Plantilla —</option>
               {teams.map(t => (
                 <option key={t.id} value={t.id}>
-                  {t.name}
+                  {t.name} ({t.category})
                 </option>
               ))}
             </select>
@@ -638,7 +679,17 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
         <div className="space-y-6">
           {/* Notification Toast */}
           <AnimatePresence>
-            {successMessage && (
+            {dbError && (
+              <div className="mx-6 mt-4 p-3 bg-rose-50 border border-rose-100 rounded-xl flex items-start gap-3 text-rose-600">
+                <AlertCircle className="w-5 h-5 shrink-0" />
+                <div className="text-xs">
+                  <p className="font-bold">Error de Base de Datos</p>
+                  <p>{dbError}</p>
+                </div>
+              </div>
+            )}
+
+        {successMessage && (
               <motion.div
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -700,8 +751,39 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
           {/* TAB 1: VER SESIONES */}
           {activeTab === 'view' && (
             <div className="space-y-6">
-              {/* Sessions Grid */}
-              {sessions.length > 0 ? (
+              {/* Display Mode Toggle & Header */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em]">Histórico de Sesiones</h3>
+                </div>
+                <div className="flex p-1 bg-slate-100 rounded-xl border border-slate-200 self-start sm:self-auto">
+                  <button
+                    onClick={() => setDisplayMode('list')}
+                    className={cn(
+                      "flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all",
+                      displayMode === 'list' ? "bg-white text-sky-600 shadow-sm" : "text-slate-500 hover:text-slate-800"
+                    )}
+                  >
+                    <LayoutList className="w-3.5 h-3.5" />
+                    Lista
+                  </button>
+                  <button
+                    onClick={() => setDisplayMode('calendar')}
+                    className={cn(
+                      "flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all",
+                      displayMode === 'calendar' ? "bg-white text-sky-600 shadow-sm" : "text-slate-500 hover:text-slate-800"
+                    )}
+                  >
+                    <Calendar className="w-3.5 h-3.5" />
+                    Calendario
+                  </button>
+                </div>
+              </div>
+
+              {displayMode === 'list' ? (
+                <>
+                  {/* Sessions Grid */}
+                  {sessions.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                   {sessions.map((session) => (
                     <motion.div
@@ -768,11 +850,6 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                             <Layers className="w-3.5 h-3.5 text-sky-500" />
                             {session.tasks ? session.tasks.length : 0} Ejercicios
                           </span>
-                          {session.rpe && (
-                            <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-black text-[10px]">
-                              RPE {session.rpe}/10
-                            </span>
-                          )}
                         </div>
                       </div>
 
@@ -806,6 +883,7 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                             <Edit3 className="w-4 h-4" />
                           </button>
                           <button
+                            type="button"
                             onClick={(e) => {
                               e.stopPropagation();
                               handleDeleteSession(session.id);
@@ -838,6 +916,99 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                     Crear Primera Sesión
                   </button>
                 </div>
+                  )}
+                </>
+              ) : (
+                /* Calendar View */
+                <div className="space-y-6">
+                  {/* Calendar Header */}
+                  <div className="flex items-center justify-between bg-white border border-slate-200 p-4 rounded-2xl shadow-sm">
+                    <button
+                      onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}
+                      className="p-2 hover:bg-slate-100 rounded-xl text-slate-500 hover:text-slate-900 transition-all cursor-pointer"
+                    >
+                      <ChevronLeft className="w-6 h-6" />
+                    </button>
+                    <h2 className="text-sm font-black text-slate-900 uppercase tracking-widest flex items-center gap-3">
+                      <Calendar className="w-5 h-5 text-sky-500" />
+                      {format(currentMonth, 'MMMM yyyy', { locale: es })}
+                    </h2>
+                    <button
+                      onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}
+                      className="p-2 hover:bg-slate-100 rounded-xl text-slate-500 hover:text-slate-900 transition-all cursor-pointer"
+                    >
+                      <ChevronRight className="w-6 h-6" />
+                    </button>
+                  </div>
+
+                  {/* Calendar Grid */}
+                  <div className="bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-sm">
+                    <div className="grid grid-cols-7 bg-slate-50 border-b border-slate-200">
+                      {['LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB', 'DOM'].map((day) => (
+                        <div key={day} className="py-3 text-center text-[10px] font-black text-slate-400 tracking-[0.2em]">
+                          {day}
+                        </div>
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-7">
+                      {(() => {
+                        const monthStart = startOfMonth(currentMonth);
+                        const monthEnd = endOfMonth(monthStart);
+                        const startDate = startOfWeek(monthStart, { weekStartsOn: 1 });
+                        const endDate = endOfWeek(monthEnd, { weekStartsOn: 1 });
+                        const calendarDays = eachDayOfInterval({ start: startDate, end: endDate });
+
+                        return calendarDays.map((day, idx) => {
+                          const daySessions = sessions.filter(s => {
+                            try {
+                              return isSameDay(parseISO(s.date), day);
+                            } catch (e) {
+                              return false;
+                            }
+                          });
+                          const isCurrentMonth = isSameMonth(day, monthStart);
+                          const isToday = isSameDay(day, new Date());
+
+                          return (
+                            <div
+                              key={idx}
+                              className={cn(
+                                "min-h-[100px] p-2 border-r border-b border-slate-100 transition-colors relative group",
+                                !isCurrentMonth ? 'bg-slate-50/50' : 'bg-white',
+                                isToday && 'bg-sky-50/50'
+                              )}
+                            >
+                              <div className="flex justify-between items-start mb-2">
+                                <span className={cn(
+                                  "text-[11px] font-black",
+                                  !isCurrentMonth ? 'text-slate-300' : isToday ? 'text-sky-600' : 'text-slate-500'
+                                )}>
+                                  {format(day, 'd')}
+                                </span>
+                                {isToday && (
+                                  <div className="w-1.5 h-1.5 bg-sky-500 rounded-full" />
+                                )}
+                              </div>
+                              <div className="flex flex-col gap-1 w-full">
+                                {daySessions.map(session => (
+                                  <button
+                                    key={session.id}
+                                    onClick={() => setSelectedSessionModal(session)}
+                                    className="w-full px-2 py-1 bg-slate-900 hover:bg-sky-600 text-white rounded-md flex items-center justify-between text-[9px] font-black shadow-sm transition-all hover:translate-x-0.5 cursor-pointer group/item"
+                                    title={session.title}
+                                  >
+                                    <span className="truncate max-w-[80%] uppercase tracking-tighter">{session.title}</span>
+                                    <span className="bg-sky-500 text-white px-1 rounded text-[8px]">{session.sessionNumber || '#'}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        });
+                      })()}
+                    </div>
+                  </div>
+                </div>
               )}
             </div>
           )}
@@ -850,37 +1021,10 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                 <div>
                   <h2 className="text-lg font-black text-slate-900 uppercase tracking-tight flex items-center gap-2">
                     <PlusCircle className="w-5 h-5 text-sky-500" />
-                    {editingSessionId ? 'Editar Sesión de Entrenamiento' : `Nueva Sesión - ${selectedTeam.name}`}
+                    {editingSessionId ? 'Editar Sesión de Entrenamiento' : 'Nueva Sesión'}
                   </h2>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      // Template loader helper
-                      setFormData({
-                        title: 'Sesión #15 - Estructurada MD-3 (Fuerza / Espacios Reducidos)',
-                        sessionNumber: 15,
-                        date: new Date().toISOString().split('T')[0],
-                        durationTotalMin: 90,
-                        microcycle: 'Microciclo 15',
-                        dayType: 'MD-3',
-                        intensity: 'Alta',
-                        rpe: 8,
-                        objectivesTactical: '',
-                        objectivesPhysical: '',
-                        objectivesTechnical: '',
-                        selectedMaterials: ['Conos', 'Petos (2 colores)', 'Balones Oficiales', 'Mini-porterías'],
-                        notes: '',
-                        tasks: []
-                      });
-                    }}
-                    className="px-3 py-1.5 bg-sky-50 text-sky-700 hover:bg-sky-100 border border-sky-200 rounded-lg text-xs font-bold transition-colors cursor-pointer"
-                  >
-                    Cargar Plantilla Tipo MD-3
-                  </button>
-                </div>
               </div>
 
               {/* Section 1: Datos Generales */}
@@ -890,24 +1034,15 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                   1. Datos Generales de la Sesión
                 </h3>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="md:col-span-2">
-                    <label className="block text-xs font-bold text-slate-700 mb-1">Título de la Sesión *</label>
-                    <input
-                      type="text"
-                      required
-                      value={formData.title}
-                      onChange={e => setFormData(p => ({ ...p, title: e.target.value }))}
-                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:ring-2 focus:ring-sky-500 outline-none"
-                    />
-                  </div>
-
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">Nº de Sesión (Opcional)</label>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Nº de Sesión *</label>
                     <input
                       type="number"
+                      required
                       value={formData.sessionNumber}
                       onChange={e => setFormData(p => ({ ...p, sessionNumber: e.target.value }))}
+                      placeholder=""
                       className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:ring-2 focus:ring-sky-500 outline-none"
                     />
                   </div>
@@ -924,7 +1059,7 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">Duración Total (minutos)</label>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Duración Total (min)</label>
                     <input
                       type="number"
                       value={formData.durationTotalMin}
@@ -972,20 +1107,6 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                       <option value="Muy Alta">Muy Alta</option>
                     </select>
                   </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Carga RPE Objetivo (1 a 10): <span className="text-sky-600 font-extrabold">{formData.rpe}/10</span>
-                    </label>
-                    <input
-                      type="range"
-                      min="1"
-                      max="10"
-                      value={formData.rpe}
-                      onChange={e => setFormData(p => ({ ...p, rpe: Number(e.target.value) }))}
-                      className="w-full accent-sky-500 cursor-pointer mt-2"
-                    />
-                  </div>
                 </div>
               </div>
 
@@ -995,7 +1116,7 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                   <div>
                     <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest flex items-center gap-2">
                       <Users className="w-4 h-4 text-sky-500" />
-                      2. Disponibilidad de Jugadoras de la Plantilla ({selectedTeam?.name})
+                      2. Disponibilidad de Jugadoras de la Plantilla
                     </h3>
                   </div>
 
@@ -1005,7 +1126,7 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                       type="button"
                       onClick={() => {
                         const allDisp: Record<string, 'disponible'> = {};
-                        squadPlayerNames.forEach(n => { allDisp[n] = 'disponible'; });
+                        squadPlayers.forEach(p => { allDisp[p.id] = 'disponible'; });
                         setFormData(prev => ({ ...prev, playerStatuses: allDisp }));
                       }}
                       className="px-2.5 py-1 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-300 rounded-lg text-[10px] font-black transition-colors cursor-pointer flex items-center gap-1"
@@ -1018,7 +1139,7 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                       type="button"
                       onClick={() => {
                         const allCom: Record<string, 'comodin'> = {};
-                        squadPlayerNames.forEach(n => { allCom[n] = 'comodin'; });
+                        squadPlayers.forEach(p => { allCom[p.id] = 'comodin'; });
                         setFormData(prev => ({ ...prev, playerStatuses: allCom }));
                       }}
                       className="px-2.5 py-1 bg-amber-50 text-amber-900 hover:bg-amber-100 border border-amber-300 rounded-lg text-[10px] font-black transition-colors cursor-pointer flex items-center gap-1"
@@ -1031,7 +1152,7 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                       type="button"
                       onClick={() => {
                         const allNo: Record<string, 'no_disponible'> = {};
-                        squadPlayerNames.forEach(n => { allNo[n] = 'no_disponible'; });
+                        squadPlayers.forEach(p => { allNo[p.id] = 'no_disponible'; });
                         setFormData(prev => ({ ...prev, playerStatuses: allNo }));
                       }}
                       className="px-2.5 py-1 bg-red-50 text-red-800 hover:bg-red-100 border border-red-300 rounded-lg text-[10px] font-black transition-colors cursor-pointer flex items-center gap-1"
@@ -1045,10 +1166,47 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                 {/* Counters Bar */}
                 {(() => {
                   const currentStatuses = formData.playerStatuses || {};
-                  const cAvailable = squadPlayerNames.filter(n => (currentStatuses[n] || 'disponible') === 'disponible').length;
-                  const cWildcard = squadPlayerNames.filter(n => currentStatuses[n] === 'comodin').length;
-                  const cUnavailable = squadPlayerNames.filter(n => currentStatuses[n] === 'no_disponible').length;
-                  const totalStr = cWildcard > 0 ? `${cAvailable}+${cWildcard}` : `${cAvailable}`;
+                  
+                  // Collect IDs of players who are goalkeepers
+                  const potentialFilialTeams = ['FEMENINO_B', 'FEMENINO_C', 'FEMENINO_D', 'FEMENINO_E'];
+                  const allGKIds = new Set<string>();
+                  
+                  // Goalkeepers from main team
+                  squadPlayers.filter(p => p.positionCategory === 'PORTERAS').forEach(p => allGKIds.add(p.id));
+                  
+                  // We also need the IDs of filial players who are goalkeepers
+                  const allFilialDetailed: DetailedSquadPlayer[] = [];
+                  potentialFilialTeams.forEach(tId => {
+                    allFilialDetailed.push(...getDetailedSquadPlayersForTeam(tId, season));
+                  });
+                  allFilialDetailed.filter(p => p.positionCategory === 'PORTERAS').forEach(p => allGKIds.add(p.id));
+                  
+                  const allActivePlayerIds = [...squadPlayers.map(p => p.id), ...formData.filialPlayers];
+                  
+                  const fieldPlayerIds = allActivePlayerIds.filter(id => !allGKIds.has(id));
+                  const gkPlayerIds = allActivePlayerIds.filter(id => allGKIds.has(id));
+
+                  const availField = fieldPlayerIds.filter(id => (currentStatuses[id] || 'disponible') === 'disponible').length;
+                  const availGK = gkPlayerIds.filter(id => (currentStatuses[id] || 'disponible') === 'disponible').length;
+                  
+                  const wildField = fieldPlayerIds.filter(id => currentStatuses[id] === 'comodin').length;
+                  const wildGK = gkPlayerIds.filter(id => currentStatuses[id] === 'comodin').length;
+                  
+                  const unavailField = fieldPlayerIds.filter(id => currentStatuses[id] === 'no_disponible').length;
+                  const unavailGK = gkPlayerIds.filter(id => currentStatuses[id] === 'no_disponible').length;
+
+                  const cAvailable = availField + availGK;
+                  const cWildcard = wildField + wildGK;
+                  const cUnavailable = unavailField + unavailGK;
+
+                  // Format total string as "FieldPlayers + Goalkeepers"
+                  const totalFieldCount = availField + wildField;
+                  const totalGKCount = availGK + wildGK;
+
+                  let totalStr = `${totalFieldCount}`;
+                  if (totalGKCount > 0) {
+                    totalStr = `${totalFieldCount} + ${totalGKCount}`;
+                  }
 
                   return (
                     <div className="flex flex-wrap items-center gap-2.5 p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs font-bold">
@@ -1067,8 +1225,8 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                         <span>No Disponibles: <strong className="text-red-950 font-black">{cUnavailable}</strong></span>
                       </div>
 
-                      <div className="ml-auto text-slate-500 text-[11px] font-bold">
-                        Ficha Técnica Nº Jugadoras: <strong className="text-slate-900 text-xs font-black">{totalStr}</strong>
+                      <div className="ml-auto text-slate-500 text-[11px] font-bold uppercase tracking-wider">
+                        Nº Jugadoras: <strong className="text-slate-900 text-xs font-black ml-1">{totalStr}</strong>
                       </div>
                     </div>
                   );
@@ -1076,15 +1234,30 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
 
                 {/* Interactive Player Grid Grouped by Position Categories */}
                 {(() => {
-                  const detailedPlayers = getDetailedSquadPlayersForTeam(selectedTeam?.id, season);
-                  const CATEGORIES: ('PORTERAS' | 'DEFENSORAS' | 'CENTROCAMPISTAS' | 'DELANTERAS' | 'OTRAS')[] = [
-                    'PORTERAS', 'DEFENSORAS', 'CENTROCAMPISTAS', 'DELANTERAS', 'OTRAS'
-                  ];
+                  const potentialFilialTeams = ['FEMENINO_B', 'FEMENINO_C', 'FEMENINO_D', 'FEMENINO_E'];
+                  const allPossiblePlayers: DetailedSquadPlayer[] = [];
+                  potentialFilialTeams.forEach(tId => {
+                    allPossiblePlayers.push(...getDetailedSquadPlayersForTeam(tId, season));
+                  });
+
+                  const filialDetailed = formData.filialPlayers.map(id => {
+                    const found = allPossiblePlayers.find(p => p.id === id);
+                    return found || {
+                      id,
+                      name: 'Filial',
+                      positionCategory: 'FILIAL' as any,
+                      number: undefined,
+                      image: undefined
+                    };
+                  }).map(p => ({ ...p, positionCategory: 'FILIAL' as any }));
+                  
+                  const allDetailed = [...squadPlayers, ...filialDetailed];
+                  const CATEGORIES = ['PORTERAS', 'DEFENSORAS', 'CENTROCAMPISTAS', 'DELANTERAS', 'OTRAS', 'FILIAL'];
 
                   return (
                     <div className="space-y-6 pt-2">
                       {CATEGORIES.map(cat => {
-                        const catPlayers = detailedPlayers.filter(p => p.positionCategory === cat);
+                        const catPlayers = allDetailed.filter(p => p.positionCategory === cat);
                         if (catPlayers.length === 0) return null;
 
                         return (
@@ -1092,7 +1265,10 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                             {/* Position Category Divider */}
                             <div className="relative flex py-1 items-center">
                               <div className="flex-grow border-t border-slate-200"></div>
-                              <span className="shrink-0 mx-4 text-[11px] font-black uppercase text-slate-400 tracking-[0.25em]">
+                              <span className={cn(
+                                "shrink-0 mx-4 text-[11px] font-black uppercase tracking-[0.25em]",
+                                cat === 'FILIAL' ? "text-sky-500" : "text-slate-400"
+                              )}>
                                 {cat}
                               </span>
                               <div className="flex-grow border-t border-slate-200"></div>
@@ -1102,13 +1278,14 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                             <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-y-5 gap-x-3 items-start justify-items-center">
                               {catPlayers.map((player, idx) => {
                                 const currentStatuses = formData.playerStatuses || {};
-                                const status = currentStatuses[player.name] || 'disponible';
+                                const status = currentStatuses[player.id] || 'disponible';
+                                const isFilial = cat === 'FILIAL';
 
                                 return (
                                   <button
-                                    key={`${player.name}_${idx}`}
+                                    key={`${player.id}_${idx}`}
                                     type="button"
-                                    onClick={() => handleTogglePlayerStatus(player.name)}
+                                    onClick={() => handleTogglePlayerStatus(player.id)}
                                     className="group flex flex-col items-center cursor-pointer select-none transition-transform hover:scale-105 active:scale-95"
                                   >
                                     <div className="relative">
@@ -1116,6 +1293,13 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                                       {player.number !== undefined && (
                                         <div className="absolute -top-1 -left-1 z-20 w-5 h-5 rounded-full bg-white border border-slate-300 text-slate-900 font-black text-[10px] flex items-center justify-center shadow-xs">
                                           {player.number}
+                                        </div>
+                                      )}
+
+                                      {/* Filial badge */}
+                                      {isFilial && (
+                                        <div className="absolute -top-1 -left-1 z-20 px-1.5 py-0.5 rounded bg-sky-600 text-white font-black text-[7px] uppercase border border-white shadow-xs">
+                                          FILIAL
                                         </div>
                                       )}
 
@@ -1139,7 +1323,7 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                                       {/* Circular photo avatar */}
                                       <div className={cn(
                                         "w-14 h-14 rounded-full border-2 overflow-hidden flex items-center justify-center relative shadow-xs transition-all",
-                                        status === 'disponible' && "border-emerald-500 bg-emerald-50/40 ring-2 ring-emerald-500/20",
+                                        status === 'disponible' && (isFilial ? "border-sky-500 bg-sky-50 ring-2 ring-sky-500/20" : "border-emerald-500 bg-emerald-50/40 ring-2 ring-emerald-500/20"),
                                         status === 'comodin' && "border-amber-400 bg-amber-50/60 ring-2 ring-amber-400/30",
                                         status === 'no_disponible' && "border-red-500 bg-red-50/70 opacity-55 ring-2 ring-red-400/20"
                                       )}>
@@ -1153,7 +1337,7 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                                         ) : (
                                           <Users className={cn(
                                             "w-6 h-6",
-                                            status === 'no_disponible' ? "text-red-300" : "text-slate-300"
+                                            status === 'no_disponible' ? "text-red-300" : isFilial ? "text-sky-300" : "text-slate-300"
                                           )} />
                                         )}
                                       </div>
@@ -1162,7 +1346,7 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                                     {/* Player Name */}
                                     <span className={cn(
                                       "mt-1.5 text-[10px] font-black uppercase text-center tracking-tight leading-tight max-w-[85px] truncate",
-                                      status === 'disponible' && "text-slate-800",
+                                      status === 'disponible' && (isFilial ? "text-sky-700" : "text-slate-800"),
                                       status === 'comodin' && "text-amber-900 font-black",
                                       status === 'no_disponible' && "text-red-600 line-through opacity-70"
                                     )}>
@@ -1178,13 +1362,165 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                     </div>
                   );
                 })()}
+
+                {/* FILIAL PLAYERS SECTION */}
+                <div className="space-y-4 pt-4 border-t border-slate-100">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <h4 className="text-[11px] font-black uppercase text-sky-600 tracking-[0.2em] flex items-center gap-2">
+                      <PlusCircle className="w-4 h-4" />
+                      Añadir Jugadoras de Filial
+                    </h4>
+
+                    <div className="flex items-center gap-2">
+                      <select 
+                        value={filialTeamSearch}
+                        onChange={(e) => setFilialTeamSearch(e.target.value)}
+                        className="px-3 py-1.5 bg-slate-100 border border-slate-200 rounded-lg text-[10px] font-black uppercase outline-none focus:ring-2 focus:ring-sky-500"
+                      >
+                        {(() => {
+                          const options = [];
+                          const teamId = selectedTeam?.id || '';
+                          
+                          if (teamId === 'FEMENINO_A') {
+                            options.push({ id: 'FEMENINO_B', label: 'Plantilla B' });
+                            options.push({ id: 'FEMENINO_C', label: 'Plantilla C' });
+                            options.push({ id: 'FEMENINO_D', label: 'Plantilla D' });
+                            options.push({ id: 'FEMENINO_E', label: 'Plantilla E' });
+                          } else if (teamId === 'FEMENINO_B') {
+                            options.push({ id: 'FEMENINO_C', label: 'Plantilla C' });
+                            options.push({ id: 'FEMENINO_D', label: 'Plantilla D' });
+                            options.push({ id: 'FEMENINO_E', label: 'Plantilla E' });
+                          } else if (teamId === 'FEMENINO_C') {
+                            options.push({ id: 'FEMENINO_D', label: 'Plantilla D' });
+                            options.push({ id: 'FEMENINO_E', label: 'Plantilla E' });
+                          } else if (teamId === 'FEMENINO_D') {
+                            options.push({ id: 'FEMENINO_E', label: 'Plantilla E' });
+                          }
+                          
+                          return options.map(opt => (
+                            <option key={opt.id} value={opt.id}>{opt.label}</option>
+                          ));
+                        })()}
+                      </select>
+                      <div className="relative">
+                        <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input 
+                          type="text"
+                          placeholder="Buscar jugadora..."
+                          value={filialPlayerSearchQuery}
+                          onChange={(e) => setFilialPlayerSearchQuery(e.target.value)}
+                          className="pl-9 pr-4 py-1.5 bg-slate-100 border border-slate-200 rounded-lg text-[10px] font-black uppercase outline-none focus:ring-2 focus:ring-sky-500 w-48"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Search Results */}
+                  {filialPlayerSearchQuery.length > 0 && (
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 max-h-48 overflow-y-auto grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                      {(() => {
+                        const otherPlayers = getDetailedSquadPlayersForTeam(filialTeamSearch, season);
+                        const filtered = otherPlayers.filter(p => 
+                          p.name.toUpperCase().includes(filialPlayerSearchQuery.toUpperCase()) &&
+                          !formData.filialPlayers.includes(p.id)
+                        );
+                        
+                        if (filtered.length === 0) return <p className="col-span-full text-center py-4 text-[10px] font-bold text-slate-400 uppercase">No se encontraron jugadoras</p>;
+                        
+                        return filtered.map(p => (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => {
+                              setFormData(prev => ({
+                                ...prev,
+                                filialPlayers: [...prev.filialPlayers, p.id],
+                                playerStatuses: { ...prev.playerStatuses, [p.id]: 'disponible' }
+                              }));
+                              setFilialPlayerSearchQuery('');
+                            }}
+                            className="flex items-center gap-2 p-2 bg-white border border-slate-200 rounded-lg hover:bg-sky-50 hover:border-sky-200 transition-all text-left"
+                          >
+                            <div className="w-6 h-6 bg-sky-100 rounded-full flex items-center justify-center text-[8px] font-black text-sky-700">
+                              {p.number || p.name.charAt(0)}
+                            </div>
+                            <span className="text-[10px] font-black text-slate-700 uppercase truncate">{p.name}</span>
+                          </button>
+                        ));
+                      })()}
+                    </div>
+                  )}
+
+                  {/* Selected Filial Players */}
+                  {formData.filialPlayers.length > 0 && (
+                    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-y-5 gap-x-3 items-start justify-items-center pt-2">
+                      {formData.filialPlayers.map((playerId, idx) => {
+                        const status = (formData.playerStatuses || {})[playerId] || 'disponible';
+                        
+                        // Find the player object to get the name
+                        const potentialFilialTeams = ['FEMENINO_B', 'FEMENINO_C', 'FEMENINO_D', 'FEMENINO_E'];
+                        let playerObj = null;
+                        for (const tId of potentialFilialTeams) {
+                          const list = getDetailedSquadPlayersForTeam(tId, season);
+                          const found = list.find(p => p.id === playerId);
+                          if (found) {
+                            playerObj = found;
+                            break;
+                          }
+                        }
+                        
+                        const playerName = playerObj?.name || 'Filial';
+
+                        return (
+                          <div key={`${playerId}_${idx}`} className="relative group flex flex-col items-center">
+                            <button
+                              type="button"
+                              onClick={() => handleTogglePlayerStatus(playerId)}
+                              className="relative w-14 h-14 rounded-full border-2 flex items-center justify-center font-black text-xs transition-all shadow-sm bg-sky-50 border-sky-500 text-sky-700 shadow-sky-100 hover:scale-105"
+                            >
+                              <span>{playerName.charAt(0)}</span>
+                              <div className={cn(
+                                "absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-2 border-white flex items-center justify-center shadow-sm",
+                                status === 'disponible' ? "bg-emerald-500" :
+                                status === 'comodin' ? "bg-amber-400" :
+                                "bg-red-500"
+                              )}>
+                                {status === 'disponible' ? <Check className="w-3 h-3 text-white" /> :
+                                 status === 'comodin' ? <Sparkles className="w-3 h-3 text-white" /> :
+                                 <X className="w-3 h-3 text-white" />}
+                              </div>
+                              
+                              <div className="absolute -top-1 -right-1 bg-sky-600 text-white text-[7px] px-1.5 py-0.5 rounded-full font-black uppercase border border-white shadow-sm">
+                                FILIAL
+                              </div>
+                            </button>
+                            <span className="mt-2 text-[9px] font-black uppercase tracking-tight text-center max-w-[70px] truncate leading-tight text-sky-700">
+                              {playerName}
+                            </span>
+                            <button 
+                              type="button"
+                              onClick={() => setFormData(prev => ({
+                                ...prev,
+                                filialPlayers: prev.filialPlayers.filter(id => id !== playerId),
+                                playerStatuses: Object.fromEntries(Object.entries(prev.playerStatuses || {}).filter(([k]) => k !== playerId))
+                              }))}
+                              className="absolute -top-1 -left-1 w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
+                            >
+                              <X className="w-2.5 h-2.5" />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Section 3: Material e Infraestructura Necesaria */}
               <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3">
                 <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest border-b pb-2 flex items-center gap-2">
                   <Dumbbell className="w-4 h-4 text-sky-500" />
-                  3. Material e Infraestructura Necesaria
+                  3. MATERIAL
                 </h3>
 
                 <div className="flex flex-wrap gap-2 pt-1">
@@ -1208,6 +1544,324 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                     );
                   })}
                 </div>
+              </div>
+
+              {/* Section 4: Tareas */}
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest border-b pb-2 flex items-center gap-2">
+                  <ClipboardList className="w-4 h-4 text-sky-500" />
+                  4. TAREAS
+                </h3>
+
+                <div className="flex bg-slate-100 p-1 rounded-xl gap-1">
+                  {['CALENTAMIENTO', 'TAREA 1', 'TAREA 2', 'TAREA 3'].map((tab, idx) => (
+                    <button
+                      key={tab}
+                      type="button"
+                      onClick={() => setActiveTaskTab(idx)}
+                      className={cn(
+                        "flex-1 py-2 text-[10px] font-black rounded-lg transition-all uppercase tracking-wider",
+                        activeTaskTab === idx
+                          ? "bg-white text-sky-600 shadow-sm"
+                          : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"
+                      )}
+                    >
+                      {tab}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-6 pt-2">
+                  {/* Left Side: Text Inputs */}
+                  <div className="md:col-span-7 space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1 uppercase tracking-tight">Nombre Tarea</label>
+                        <input
+                          type="text"
+                          value={formData.tasks[activeTaskTab]?.title || ''}
+                          onChange={e => {
+                            const newTasks = [...formData.tasks];
+                            newTasks[activeTaskTab] = { ...newTasks[activeTaskTab], title: e.target.value };
+                            setFormData(p => ({ ...p, tasks: newTasks }));
+                          }}
+                          className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:ring-2 focus:ring-sky-500 outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1 uppercase tracking-tight">Dirige</label>
+                        <input
+                          type="text"
+                          value={formData.tasks[activeTaskTab]?.coach || ''}
+                          onChange={e => {
+                            const newTasks = [...formData.tasks];
+                            newTasks[activeTaskTab] = { ...newTasks[activeTaskTab], coach: e.target.value };
+                            setFormData(p => ({ ...p, tasks: newTasks }));
+                          }}
+                          className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:ring-2 focus:ring-sky-500 outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1 uppercase tracking-tight">Tiempo (min)</label>
+                        <input
+                          type="number"
+                          value={formData.tasks[activeTaskTab]?.durationMin || ''}
+                          onChange={e => {
+                            const newTasks = [...formData.tasks];
+                            newTasks[activeTaskTab] = { ...newTasks[activeTaskTab], durationMin: Number(e.target.value) };
+                            setFormData(p => ({ ...p, tasks: newTasks }));
+                          }}
+                          className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:ring-2 focus:ring-sky-500 outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1 uppercase tracking-tight">Foco</label>
+                        <select
+                          value={formData.tasks[activeTaskTab]?.foco || 'MIXTO'}
+                          onChange={e => {
+                            const newTasks = [...formData.tasks];
+                            newTasks[activeTaskTab] = { ...newTasks[activeTaskTab], foco: e.target.value as any };
+                            setFormData(p => ({ ...p, tasks: newTasks }));
+                          }}
+                          className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:ring-2 focus:ring-sky-500 outline-none"
+                        >
+                          <option value="MCB">MCB</option>
+                          <option value="MSB">MSB</option>
+                          <option value="MIXTO">MIXTO</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1 uppercase tracking-tight">Tipología</label>
+                        <select
+                          value={formData.tasks[activeTaskTab]?.tipologia || 'LÚDICO'}
+                          onChange={e => {
+                            const newTasks = [...formData.tasks];
+                            newTasks[activeTaskTab] = { ...newTasks[activeTaskTab], tipologia: e.target.value as any };
+                            setFormData(p => ({ ...p, tasks: newTasks }));
+                          }}
+                          className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:ring-2 focus:ring-sky-500 outline-none"
+                        >
+                          <option value="LÚDICO">LÚDICO</option>
+                          <option value="RONDOS">RONDOS</option>
+                          <option value="EVOLUCIONES">EVOLUCIONES</option>
+                          <option value="RUEDAS DE PASE">RUEDAS DE PASE</option>
+                          <option value="MANTENIMIENTO">MANTENIMIENTO</option>
+                          <option value="JUEGO DE POSICIÓN">JUEGO DE POSICIÓN</option>
+                          <option value="JUEGO DE PROGRESIÓN">JUEGO DE PROGRESIÓN</option>
+                          <option value="PARTIDO CONDICIONADO">PARTIDO CONDICIONADO</option>
+                          <option value="REDUCIDOS">REDUCIDOS</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1 uppercase tracking-tight">Explicación de la Tarea</label>
+                      <textarea
+                        rows={6}
+                        value={formData.tasks[activeTaskTab]?.description || ''}
+                        onChange={e => {
+                          const newTasks = [...formData.tasks];
+                          newTasks[activeTaskTab] = { ...newTasks[activeTaskTab], description: e.target.value };
+                          setFormData(p => ({ ...p, tasks: newTasks }));
+                        }}
+                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-sky-500 outline-none resize-none min-h-[160px]"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Right Side: Image Upload/Preview Area */}
+                  <div className="md:col-span-5 flex flex-col h-full pt-5">
+                    <div className="flex-1 min-h-[300px]">
+                      {formData.tasks[activeTaskTab]?.image ? (
+                        <div className="relative w-full h-full bg-slate-100 rounded-2xl overflow-hidden border border-slate-200 group shadow-md transition-shadow hover:shadow-lg">
+                          <img 
+                            src={formData.tasks[activeTaskTab]?.image} 
+                            alt="Preview" 
+                            className="w-full h-full object-cover cursor-pointer"
+                            referrerPolicy="no-referrer"
+                            onClick={() => {
+                              setImageToEdit(formData.tasks[activeTaskTab].image || null);
+                              setIsEditorOpen(true);
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const newTasks = [...formData.tasks];
+                              newTasks[activeTaskTab] = { ...newTasks[activeTaskTab], image: undefined };
+                              setFormData(p => ({ ...p, tasks: newTasks }));
+                            }}
+                            className="absolute top-4 right-4 p-3 bg-rose-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-2xl hover:bg-rose-600"
+                          >
+                            <X className="w-6 h-6" />
+                          </button>
+                        </div>
+                      ) : (
+                        <label className="w-full h-full flex flex-col items-center justify-center border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50 hover:bg-slate-100 hover:border-sky-300 transition-all cursor-pointer group">
+                          <div className="p-8 rounded-full bg-white shadow-sm border border-slate-100 group-hover:scale-110 transition-transform mb-4">
+                            <ImagePlus className="w-16 h-16 text-slate-300 group-hover:text-sky-400 transition-colors" />
+                          </div>
+                          <span className="text-[14px] font-black text-slate-400 group-hover:text-sky-500 transition-colors uppercase tracking-widest">Añadir Imagen Tarea</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={e => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                const reader = new FileReader();
+                                reader.onloadend = () => {
+                                  const result = reader.result as string;
+                                  setImageToEdit(result);
+                                  setIsEditorOpen(true);
+                                };
+                                reader.readAsDataURL(file);
+                              }
+                            }}
+                          />
+                        </label>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Image Editor Modal Integration */}
+              {imageToEdit && (
+                <ImageEditorModal
+                  image={imageToEdit}
+                  isOpen={isEditorOpen}
+                  onClose={() => setIsEditorOpen(false)}
+                  onSave={(croppedImage) => {
+                    const newTasks = [...formData.tasks];
+                    newTasks[activeTaskTab] = { ...newTasks[activeTaskTab], image: croppedImage };
+                    setFormData(p => ({ ...p, tasks: newTasks }));
+                    setIsEditorOpen(false);
+                  }}
+                />
+              )}
+
+              {/* 5. CUERPO TÉCNICO */}
+              <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 space-y-6">
+                <div className="flex items-center gap-3 border-b border-slate-50 pb-4">
+                  <div className="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center">
+                    <Shield className="w-5 h-5 text-indigo-500" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-black text-slate-900 uppercase tracking-tight">5. Cuerpo Técnico</h4>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Tareas y focos específicos del Staff</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-3">
+                  {staffMembers.map((member) => {
+                    const isSelected = formData.sessionStaffTasks.some(t => t.staffName === member.name);
+                    return (
+                      <button
+                        key={`${member.name}_${member.role}`}
+                        type="button"
+                        onClick={() => {
+                          setFormData(prev => {
+                            const exists = prev.sessionStaffTasks.find(t => t.staffName === member.name);
+                            if (exists) {
+                              return {
+                                ...prev,
+                                sessionStaffTasks: prev.sessionStaffTasks.filter(t => t.staffName !== member.name)
+                              };
+                            } else {
+                              return {
+                                ...prev,
+                                sessionStaffTasks: [...prev.sessionStaffTasks, { staffName: member.name, foco1: '', foco2: '' }]
+                              };
+                            }
+                          });
+                        }}
+                        className={cn(
+                          "group relative flex flex-col items-center p-3 rounded-2xl border-2 transition-all duration-300",
+                          isSelected 
+                            ? "bg-indigo-50 border-indigo-200 ring-2 ring-indigo-100" 
+                            : "bg-slate-50 border-transparent hover:bg-white hover:border-slate-200"
+                        )}
+                      >
+                        <div className="relative w-12 h-12 mb-2">
+                          {member.image ? (
+                            <img src={member.image} alt={member.name} className="w-full h-full object-cover rounded-full border-2 border-white shadow-sm" />
+                          ) : (
+                            <div className="w-full h-full bg-indigo-100 rounded-full flex items-center justify-center border-2 border-white shadow-sm">
+                              <Users className="w-6 h-6 text-indigo-400" />
+                            </div>
+                          )}
+                          {isSelected && (
+                            <div className="absolute -top-1 -right-1 bg-indigo-500 text-white p-0.5 rounded-full shadow-lg scale-110">
+                              <Check className="w-3 h-3 stroke-[4px]" />
+                            </div>
+                          )}
+                        </div>
+                        <span className={cn(
+                          "text-[10px] font-black uppercase tracking-tight text-center leading-none mb-1",
+                          isSelected ? "text-indigo-900" : "text-slate-600"
+                        )}>
+                          {member.name.split(' ')[0]}
+                        </span>
+                        <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{member.role}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {formData.sessionStaffTasks.length > 0 && (
+                  <div className="space-y-4 pt-4 border-t border-slate-50">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {formData.sessionStaffTasks.map((task, idx) => (
+                        <div key={`${task.staffName}_${idx}`} className="bg-slate-50 rounded-2xl p-4 border border-slate-100 relative group transition-all hover:bg-white hover:shadow-md">
+                          <div className="flex items-center gap-3 mb-4">
+                            <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center text-indigo-600 font-black text-[10px]">
+                              {idx + 1}
+                            </div>
+                            <div>
+                              <h5 className="text-xs font-black text-slate-900 uppercase tracking-tight">{task.staffName}</h5>
+                              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Definición de focos</p>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div className="space-y-1.5">
+                              <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Foco 1</label>
+                              <input
+                                type="text"
+                                value={task.foco1}
+                                onChange={(e) => {
+                                  const newTasks = [...formData.sessionStaffTasks];
+                                  newTasks[idx] = { ...newTasks[idx], foco1: e.target.value };
+                                  setFormData(p => ({ ...p, sessionStaffTasks: newTasks }));
+                                }}
+                                placeholder="Indica el primer foco..."
+                                className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Foco 2</label>
+                              <input
+                                type="text"
+                                value={task.foco2}
+                                onChange={(e) => {
+                                  const newTasks = [...formData.sessionStaffTasks];
+                                  newTasks[idx] = { ...newTasks[idx], foco2: e.target.value };
+                                  setFormData(p => ({ ...p, sessionStaffTasks: newTasks }));
+                                }}
+                                placeholder="Indica el segundo foco..."
+                                className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Form Buttons */}
@@ -1277,8 +1931,46 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                   </span>
                   <span className="flex items-center gap-1">
                     <Flame className="w-4 h-4 text-rose-400" />
-                    Intensidad: {selectedSessionModal.intensity} (RPE {selectedSessionModal.rpe}/10)
+                    Intensidad: {selectedSessionModal.intensity}
                   </span>
+                </div>
+
+                <div className="absolute top-4 right-14 flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      setEditingSessionId(selectedSessionModal.id);
+                      setFormData({
+                        sessionNumber: selectedSessionModal.sessionNumber || '',
+                        date: selectedSessionModal.date,
+                        durationTotalMin: selectedSessionModal.durationTotalMin,
+                        microcycle: selectedSessionModal.microcycle,
+                        dayType: selectedSessionModal.dayType,
+                        intensity: selectedSessionModal.intensity,
+                        playerStatuses: selectedSessionModal.playerStatuses || {},
+                        objectivesTactical: selectedSessionModal.objectivesTactical || '',
+                        objectivesPhysical: selectedSessionModal.objectivesPhysical || '',
+                        objectivesTechnical: selectedSessionModal.objectivesTechnical || '',
+                        selectedMaterials: selectedSessionModal.materials || [],
+                        notes: selectedSessionModal.notes || '',
+                        tasks: selectedSessionModal.tasks || [],
+                        filialPlayers: selectedSessionModal.filialPlayerNames || []
+                      });
+                      setSelectedSessionModal(null);
+                      setActiveTab('create');
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 border border-white/10 rounded-lg text-[10px] font-black uppercase transition-all"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                    Editar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteSession(selectedSessionModal.id)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-500/20 hover:bg-rose-500/40 border border-rose-500/30 rounded-lg text-[10px] font-black text-rose-300 uppercase transition-all cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Eliminar
+                  </button>
                 </div>
               </div>
 
@@ -1342,39 +2034,67 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                             </span>
                             <h5 className="font-black text-slate-900 text-sm">{t.title}</h5>
                           </div>
-
-                          <div className="flex items-center gap-2 text-[10px] font-bold">
-                            <span className="px-2 py-0.5 bg-sky-100 text-sky-800 rounded uppercase">
-                              {t.phase}
-                            </span>
-                            <span className="px-2 py-0.5 bg-slate-200 text-slate-800 rounded">
-                              {t.durationMin} min
-                            </span>
-                          </div>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-slate-600 font-medium pt-1">
-                          {t.spaceSize && (
-                            <p><strong className="text-slate-800">Espacio:</strong> {t.spaceSize}</p>
-                          )}
-                          {t.seriesReps && (
-                            <p><strong className="text-slate-800">Series:</strong> {t.seriesReps}</p>
-                          )}
+                        <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
+                          {/* Left Side: Info & Text */}
+                          <div className="md:col-span-7 space-y-3">
+                            <div className="flex items-center gap-2 text-[10px] font-bold">
+                              <span className="px-2 py-0.5 bg-sky-100 text-sky-800 rounded uppercase">
+                                {t.phase}
+                              </span>
+                              <span className="px-2 py-0.5 bg-slate-200 text-slate-800 rounded">
+                                {t.durationMin} min
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-slate-600 font-medium border-y border-slate-100 py-2">
+                              {t.coach && (
+                                <p><strong className="text-slate-800 uppercase text-[9px]">Dirige:</strong> {t.coach}</p>
+                              )}
+                              {t.foco && (
+                                <p><strong className="text-slate-800 uppercase text-[9px]">Foco:</strong> {t.foco}</p>
+                              )}
+                              {t.tipologia && (
+                                <p><strong className="text-slate-800 uppercase text-[9px]">Tipología:</strong> {t.tipologia}</p>
+                              )}
+                            </div>
+
+                            {t.description && (
+                              <div className="text-slate-700 font-medium leading-relaxed bg-white p-3 rounded-xl border border-slate-100 shadow-sm">
+                                <strong className="text-slate-900 block text-[10px] uppercase font-bold mb-1 border-b border-slate-50 pb-1">Descripción & Reglas:</strong>
+                                <p className="text-xs whitespace-pre-line">{t.description}</p>
+                              </div>
+                            )}
+
+                            {t.coachingPoints && (
+                              <div className="text-sky-900 font-medium leading-relaxed bg-sky-50/70 p-3 rounded-xl border border-sky-100">
+                                <strong className="text-sky-950 block text-[10px] uppercase font-bold mb-1 border-b border-sky-100/50 pb-1">Coaching Points:</strong>
+                                <p className="text-xs">{t.coachingPoints}</p>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Right Side: Large Image Preview */}
+                          <div className="md:col-span-5">
+                            {t.image ? (
+                              <div className="relative aspect-video w-full bg-slate-200 rounded-2xl overflow-hidden border border-slate-300 shadow-inner">
+                                <img 
+                                  src={t.image} 
+                                  alt={t.title} 
+                                  className="w-full h-full object-cover"
+                                  referrerPolicy="no-referrer"
+                                />
+                                <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent pointer-events-none" />
+                              </div>
+                            ) : (
+                              <div className="aspect-video w-full bg-slate-100 rounded-2xl border border-dashed border-slate-200 flex flex-col items-center justify-center text-slate-400">
+                                <ImageIcon className="w-8 h-8 mb-2 opacity-20" />
+                                <span className="text-[10px] font-bold uppercase tracking-widest opacity-40">Sin Imagen</span>
+                              </div>
+                            )}
+                          </div>
                         </div>
-
-                        {t.description && (
-                          <div className="text-slate-700 font-medium leading-relaxed bg-white p-2.5 rounded-lg border border-slate-100">
-                            <strong className="text-slate-900 block text-[10px] uppercase font-bold mb-0.5">Descripción & Reglas:</strong>
-                            {t.description}
-                          </div>
-                        )}
-
-                        {t.coachingPoints && (
-                          <div className="text-sky-900 font-medium leading-relaxed bg-sky-50/70 p-2.5 rounded-lg border border-sky-100">
-                            <strong className="text-sky-950 block text-[10px] uppercase font-bold mb-0.5">Coaching Points:</strong>
-                            {t.coachingPoints}
-                          </div>
-                        )}
                       </div>
                     ))}
                   </div>

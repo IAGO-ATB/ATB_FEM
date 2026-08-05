@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { Users, Calendar, BarChart2, MessageSquare, Bell, Settings, LogOut, ChevronRight, Edit2, Shield, Plus, X, Layers, ClipboardList, Loader2 } from 'lucide-react';
+import { Users, Calendar, BarChart2, MessageSquare, Bell, Settings, LogOut, ChevronRight, Edit2, Shield, Plus, X, Layers, ClipboardList, Loader2, Dumbbell } from 'lucide-react';
 import { cn } from './lib/utils';
 import TeamsView from './components/TeamsView';
 import TeamRoster from './components/TeamRoster';
 import PlayerProfile from './components/PlayerProfile';
 import LineOfSuccessionView from './components/LineOfSuccessionView';
 import SessionsView from './components/SessionsView';
+import GymView from './components/GymView';
 import CalendarView from './components/CalendarView';
 import ForumView from './components/ForumView';
 import StatsView from './components/StatsView';
@@ -28,63 +29,7 @@ const REAL_FEMENINO_A_STAFF = {
   physio: { name: 'Alberto Marín' }
 };
 
-const INITIAL_TEAMS: Team[] = [
-  { 
-    id: 'FEMENINO_A', 
-    name: 'ATB FEMENINO A', 
-    category: 'Primer Equipo',
-    coach: 'Miky Mayans',
-    staff: REAL_FEMENINO_A_STAFF
-  },
-  { 
-    id: 'FEMENINO_B', 
-    name: 'ATB FEMENINO B', 
-    category: 'Filial',
-    coach: 'Javier Ramos',
-    staff: {
-      headCoach: { name: 'Javier Ramos' },
-      secondCoach: { name: 'Paula Vich' },
-      physicalTrainer: { name: 'Joan Torres' },
-      goalkeeperCoach: { name: 'Marc Sans' },
-      delegate: { name: 'Antonia Coll' },
-      physio: { name: 'David Serra' }
-    }
-  },
-  { 
-    id: 'FEMENINO_C', 
-    name: 'ATB FEMENINO C', 
-    category: 'Juvenil',
-    coach: 'Marina Bestard',
-    staff: {
-      headCoach: { name: 'Marina Bestard' },
-      secondCoach: { name: 'Lucas Ferrer' },
-      physicalTrainer: { name: 'Joan Torres' },
-      delegate: { name: 'Carmen Rotger' }
-    }
-  },
-  { 
-    id: 'FEMENINO_D', 
-    name: 'ATB FEMENINO D', 
-    category: 'Infantil',
-    coach: 'David Vidal',
-    staff: {
-      headCoach: { name: 'David Vidal' },
-      secondCoach: { name: 'Aina Riera' },
-      delegate: { name: 'Jaume Mayol' }
-    }
-  },
-  { 
-    id: 'FEMENINO_E', 
-    name: 'ATB FEMENINO E', 
-    category: 'Cadete',
-    coach: 'Sonia Oliver',
-    staff: {
-      headCoach: { name: 'Sonia Oliver' },
-      secondCoach: { name: 'Mateu Bennasar' },
-      delegate: { name: 'Francisca Bauzà' }
-    }
-  },
-];
+const INITIAL_TEAMS: Team[] = [];
 
 const INITIAL_SEASONS = ['2026/2027'];
 
@@ -116,57 +61,50 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('equipos');
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
-  const [teamLogo, setTeamLogo] = useState<string>(() => localStorage.getItem('team_logo') || '');
-  const [logoScale, setLogoScale] = useState<number>(() => Number(localStorage.getItem('team_logo_scale')) || 1);
+  const [teamLogo, setTeamLogo] = useState<string>('');
+  const [logoScale, setLogoScale] = useState<number>(1);
 
   // Season and Teams Context
-  const [seasons, setSeasons] = useState<string[]>(() => {
-    const saved = localStorage.getItem('app_seasons');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed;
-        }
-      } catch (e) {}
-    }
-    return INITIAL_SEASONS;
-  });
+  const [seasons, setSeasons] = useState<string[]>(INITIAL_SEASONS);
   const [selectedSeason, setSelectedSeason] = useState<string>('2026/2027');
 
-  const [teamsBySeason, setTeamsBySeason] = useState<Record<string, Team[]>>(() => {
-    const saved = localStorage.getItem('app_teams_by_season');
-    if (saved) {
+  const [teamsBySeason, setTeamsBySeason] = useState<Record<string, Team[]>>({});
+
+  useEffect(() => {
+    async function fetchAllTeams() {
+      if (!supabase) return;
       try {
-        const parsed = JSON.parse(saved);
-        if (parsed['2026/2027']) {
-          parsed['2026/2027'] = parsed['2026/2027'].map((t: Team) => {
-            if (t.id === 'FEMENINO_A') {
-              if (t.coach === 'Txema Expósito' || t.staff?.headCoach?.name === 'Txema Expósito' || !t.staff?.headCoach?.name) {
-                return {
-                  ...t,
-                  coach: 'Miky Mayans',
-                  staff: REAL_FEMENINO_A_STAFF
-                };
-              }
-            }
-            return t;
-          });
+        const { data, error } = await supabase
+          .from('teams')
+          .select('*')
+          .order('name', { ascending: true });
+        
+        if (!error && data) {
+          const mappedTeams = data.map((t: any) => ({
+            ...t,
+            technicalStaff: t.technical_staff || t.technicalstaff || t.technicalStaff
+          }));
+          
+          // For now, we assume these teams belong to the selected season 
+          // or we can just categorize them if we had a season column in teams table.
+          // Since there's no season column in teams yet, we'll assign them to the selected season.
+          setTeamsBySeason(prev => ({
+            ...prev,
+            [selectedSeason]: mappedTeams
+          }));
         }
-        return parsed;
-      } catch (e) {}
+      } catch (err) {
+        console.error('Error fetching teams for App selector:', err);
+      }
     }
-    return {
-      '2026/2027': INITIAL_TEAMS
-    };
-  });
+    fetchAllTeams();
+  }, [supabase, selectedSeason]);
 
   const currentTeams = teamsBySeason[selectedSeason] ?? (selectedSeason === '2026/2027' ? INITIAL_TEAMS : []);
 
   const handleTeamsChangeForSeason = (newTeams: Team[]) => {
     setTeamsBySeason(prev => {
       const updated = { ...prev, [selectedSeason]: newTeams };
-      localStorage.setItem('app_teams_by_season', JSON.stringify(updated));
       return updated;
     });
   };
@@ -181,7 +119,6 @@ export default function App() {
       reader.onloadend = () => {
         const base64 = reader.result as string;
         setTeamLogo(base64);
-        localStorage.setItem('team_logo', base64);
       };
       reader.readAsDataURL(file);
     }
@@ -205,7 +142,6 @@ export default function App() {
     if (!seasons.includes(formatted)) {
       const updated = [formatted, ...seasons];
       setSeasons(updated);
-      localStorage.setItem('app_seasons', JSON.stringify(updated));
       setSelectedSeason(formatted);
       setSelectedTeam(null);
       setSelectedPlayer(null);
@@ -231,6 +167,7 @@ export default function App() {
     { id: 'linea-sucesion', name: 'Línea de Sucesión', icon: Layers },
     { id: 'equipos', name: 'Plantillas', icon: Users, active: true },
     { id: 'sesiones', name: 'Sesiones', icon: ClipboardList },
+    { id: 'gimnasio', name: 'Gimnasio', icon: Dumbbell },
     { id: 'calendario', name: 'Calendario', icon: Calendar },
     { id: 'foro', name: 'Foro Mentoría', icon: MessageSquare },
     { id: 'estadisticas', name: 'Estadísticas', icon: BarChart2 },
@@ -343,6 +280,43 @@ export default function App() {
                 </option>
               </select>
             </div>
+
+            {/* Plantilla / Equipo Selector Dropdown */}
+            <div className="relative flex items-center bg-slate-100 border border-slate-200 rounded-lg px-2.5 py-1">
+              <Shield className="w-3.5 h-3.5 text-slate-600 mr-1.5 shrink-0" />
+              <select
+                value={selectedTeam?.id || ''}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (!val || val === 'ALL') {
+                    setSelectedTeam(null);
+                  } else {
+                    const team = currentTeams.find(t => String(t.id) === String(val));
+                    setSelectedTeam(team || null);
+                  }
+                  setSelectedPlayer(null);
+                }}
+                className="bg-transparent text-slate-800 text-xs font-bold tracking-wide outline-none cursor-pointer pr-1"
+              >
+                <option value="ALL" className="text-slate-900 bg-white font-semibold">
+                  Todas las Plantillas {currentTeams.length > 0 ? `(${currentTeams.length})` : ''}
+                </option>
+                {currentTeams.map((t) => (
+                  <option key={t.id} value={t.id} className="text-slate-900 bg-white font-semibold">
+                    {t.name} ({t.category})
+                  </option>
+                ))}
+              </select>
+              {selectedTeam && (
+                <button 
+                  onClick={() => { setSelectedTeam(null); setSelectedPlayer(null); }}
+                  className="ml-1 text-slate-400 hover:text-slate-600 p-0.5 rounded-md"
+                  title="Quitar filtro de plantilla"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="flex items-center gap-4">
@@ -366,6 +340,7 @@ export default function App() {
             {activeTab === 'linea-sucesion' && (
               <LineOfSuccessionView 
                 season={selectedSeason} 
+                selectedTeam={selectedTeam}
                 teams={currentTeams}
                 onSelectPlayer={(player) => setSelectedPlayer(player)}
               />
@@ -400,6 +375,14 @@ export default function App() {
                 selectedTeam={selectedTeam}
                 teams={currentTeams}
                 onSelectTeam={(team) => setSelectedTeam(team)}
+              />
+            )}
+
+            {activeTab === 'gimnasio' && (
+              <GymView 
+                season={selectedSeason}
+                selectedTeam={selectedTeam}
+                teams={currentTeams}
               />
             )}
 

@@ -16,63 +16,7 @@ const REAL_FEMENINO_A_STAFF = {
   physio: { name: 'Alberto Marín' }
 };
 
-const INITIAL_TEAMS: Team[] = [
-  { 
-    id: 'FEMENINO_A', 
-    name: 'ATB FEMENINO A', 
-    category: 'Primer Equipo',
-    coach: 'Miky Mayans',
-    staff: REAL_FEMENINO_A_STAFF
-  },
-  { 
-    id: 'FEMENINO_B', 
-    name: 'ATB FEMENINO B', 
-    category: 'Filial',
-    coach: 'Javier Ramos',
-    staff: {
-      headCoach: { name: 'Javier Ramos' },
-      secondCoach: { name: 'Paula Vich' },
-      physicalTrainer: { name: 'Joan Torres' },
-      goalkeeperCoach: { name: 'Marc Sans' },
-      delegate: { name: 'Antonia Coll' },
-      physio: { name: 'David Serra' }
-    }
-  },
-  { 
-    id: 'FEMENINO_C', 
-    name: 'ATB FEMENINO C', 
-    category: 'Juvenil',
-    coach: 'Marina Bestard',
-    staff: {
-      headCoach: { name: 'Marina Bestard' },
-      secondCoach: { name: 'Lucas Ferrer' },
-      physicalTrainer: { name: 'Joan Torres' },
-      delegate: { name: 'Carmen Rotger' }
-    }
-  },
-  { 
-    id: 'FEMENINO_D', 
-    name: 'ATB FEMENINO D', 
-    category: 'Infantil',
-    coach: 'David Vidal',
-    staff: {
-      headCoach: { name: 'David Vidal' },
-      secondCoach: { name: 'Aina Riera' },
-      delegate: { name: 'Jaume Mayol' }
-    }
-  },
-  { 
-    id: 'FEMENINO_E', 
-    name: 'ATB FEMENINO E', 
-    category: 'Cadete',
-    coach: 'Sonia Oliver',
-    staff: {
-      headCoach: { name: 'Sonia Oliver' },
-      secondCoach: { name: 'Mateu Bennasar' },
-      delegate: { name: 'Francisca Bauzà' }
-    }
-  },
-];
+const INITIAL_TEAMS: Team[] = [];
 
 interface TeamsViewProps {
   season?: string;
@@ -126,14 +70,16 @@ export default function TeamsView({ season, teams: propTeams = INITIAL_TEAMS, on
             .select('*')
             .order('name', { ascending: true });
 
-          if (!teamsError && teamsData && teamsData.length > 0) {
-            baseTeams = teamsData.map((t: any) => ({
-              ...t,
-              technicalStaff: t.technicalstaff || t.technicalStaff
-            }));
+          if (!teamsError && teamsData) {
+            if (teamsData.length > 0) {
+              baseTeams = teamsData.map((t: any) => ({
+                ...t,
+                technicalStaff: t.technical_staff || t.technicalstaff || t.technicalStaff
+              }));
+            }
           }
         } catch (err: any) {
-          console.log('Supabase fallback a equipos locales');
+          console.log('Error cargando equipos de Supabase');
         }
       }
 
@@ -147,24 +93,12 @@ export default function TeamsView({ season, teams: propTeams = INITIAL_TEAMS, on
               const { count } = await supabase
                 .from('players')
                 .select('*', { count: 'exact', head: true })
-                .eq('teamid', team.id);
+                .eq('team_id', team.id);
               sbCount = count;
             } catch (e) {}
           }
 
-          let localCount = 0;
-          const key = `app_players_${seasonStr}_${team.id}`;
-          const saved = localStorage.getItem(key);
-          if (saved) {
-            try {
-              const parsed = JSON.parse(saved);
-              if (Array.isArray(parsed)) localCount = parsed.length;
-            } catch (e) {}
-          } else if (seasonStr === '2026/2027' && team.id === 'FEMENINO_A') {
-            localCount = 4;
-          }
-
-          const finalCount = Math.max(sbCount || 0, localCount);
+          const finalCount = sbCount || 0;
 
           return {
             ...team,
@@ -252,7 +186,7 @@ export default function TeamsView({ season, teams: propTeams = INITIAL_TEAMS, on
       name: teamData.name,
       category: teamData.category,
       coach: teamData.coach,
-      technicalstaff: teamData.technicalStaff,
+      technical_staff: teamData.technicalStaff,
       staff: teamData.staff
     };
 
@@ -285,14 +219,16 @@ export default function TeamsView({ season, teams: propTeams = INITIAL_TEAMS, on
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-      {teams.map((team, index) => (
+    <div className="space-y-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {teams.map((team, index) => (
         <motion.div
           key={team.id}
           initial={{ opacity: 0, scale: 0.98 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ delay: index * 0.05 }}
-          className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:border-sky-300 transition-all group flex flex-col"
+          onClick={() => onSelectTeam(team)}
+          className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:border-sky-300 transition-all group flex flex-col cursor-pointer"
         >
           <div className="flex justify-between items-start mb-4">
             <h3 className="font-bold text-slate-900 tracking-tight">{team.name}</h3>
@@ -388,8 +324,9 @@ export default function TeamsView({ season, teams: propTeams = INITIAL_TEAMS, on
         <Plus className="w-8 h-8" />
         <span className="text-xs font-bold uppercase tracking-widest">Agregar Plantilla</span>
       </button>
+    </div>
 
-      {/* Modal de Gestión de Equipo */}
+    {/* Modal de Gestión de Equipo */}
       <AnimatePresence>
         {showModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">

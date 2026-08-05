@@ -70,7 +70,7 @@ export type UserRole = 'admin' | 'coach' | 'player';
 export interface ExerciseTask {
   id: string;
   title: string;
-  phase: 'Calentamiento' | 'Parte Principal' | 'Tarea Analítica' | 'Juego de Posición' | 'Partido / Global' | 'Vuelta a la Calma';
+  phase: 'Calentamiento' | 'Parte Principal' | 'Tarea Analítica' | 'Juego de Posición' | 'Partido / Global' | 'Vuelta a la Calma' | 'Tarea 1' | 'Tarea 2' | 'Tarea 3';
   durationMin: number;
   seriesReps?: string;
   spaceSize?: string;
@@ -79,9 +79,11 @@ export interface ExerciseTask {
   materials?: string;
   coach?: string; // e.g. MIKY, JUANMI, NICA, IAGO
   codeName?: string; // e.g. SRJ EG 3x3+2, SMJ JUEGO PROGRESION 5X5+6, SGJ EM ATAQUE-DEFENSA
-  focoMSB?: string;
+  foco?: 'MCB' | 'MSB' | 'MIXTO';
+  tipologia?: 'LÚDICO' | 'RONDOS' | 'EVOLUCIONES' | 'RUEDAS DE PASE' | 'MANTENIMIENTO' | 'JUEGO DE POSICIÓN' | 'JUEGO DE PROGRESIÓN' | 'PARTIDO CONDICIONADO' | 'REDUCIDOS';
   comoParaQue?: string;
   diagramPreset?: 'rondo' | 'posicion' | 'partido' | 'ataque_defensa';
+  image?: string;
 }
 
 export interface StaffAproximacion {
@@ -89,6 +91,12 @@ export interface StaffAproximacion {
   taskTitle: string; // CALENTAMIENTO, 5x5+6, PARTIDO, TAREA 2...
   consigna: string; // Observación / Foco MSB
   comoParaQue: string; // ¿CÓMO? ¿POR / PARA QUÉ?
+}
+
+export interface SessionStaffTask {
+  staffName: string;
+  foco1: string;
+  foco2: string;
 }
 
 export interface TrainingSession {
@@ -108,12 +116,14 @@ export interface TrainingSession {
   availablePlayerNames?: string[];
   wildcardPlayerNames?: string[];
   unavailablePlayerNames?: string[];
+  filialPlayerNames?: string[];
   playerStatuses?: Record<string, 'disponible' | 'comodin' | 'no_disponible'>;
   objectivesTactical?: string;
   objectivesPhysical?: string;
   objectivesTechnical?: string;
   materials?: string[];
   tasks: ExerciseTask[];
+  sessionStaffTasks?: SessionStaffTask[];
   staffAproximaciones?: StaffAproximacion[];
   phaseLineups?: {
     phase1Group?: string; // Gabi, López...

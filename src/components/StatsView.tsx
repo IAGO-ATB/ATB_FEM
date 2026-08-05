@@ -12,22 +12,17 @@ export default function StatsView({ season, selectedTeam }: StatsViewProps) {
   const currentTeamName = selectedTeam ? selectedTeam.name : 'Todas las Plantillas';
 
   const statsByTeam = {
-    matches: 14,
-    wins: 9,
-    draws: 3,
-    losses: 2,
-    goalsFor: 34,
-    goalsAgainst: 12,
-    cleanSheets: 6,
-    avgPossession: '58%'
+    matches: 0,
+    wins: 0,
+    draws: 0,
+    losses: 0,
+    goalsFor: 0,
+    goalsAgainst: 0,
+    cleanSheets: 0,
+    avgPossession: '0%'
   };
 
-  const topScorers = [
-    { name: 'Sofía Ruiz', position: 'Delantera', goals: 15, assists: 4, minutes: 980 },
-    { name: 'Elena Gómez', position: 'Mediapunta', goals: 8, assists: 12, minutes: 1120 },
-    { name: 'Carla Rodríguez', position: 'Defensora', goals: 2, assists: 1, minutes: 1200 },
-    { name: 'Laura Martínez', position: 'Portera', goals: 0, assists: 1, minutes: 1260 },
-  ];
+  const topScorers: any[] = [];
 
   return (
     <div className="space-y-6">

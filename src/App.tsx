@@ -331,7 +331,7 @@ export default function App() {
         <div className="p-8 flex gap-6 flex-1 overflow-auto">
           {/* Main Content Section */}
           <motion.div
-            key={activeTab + selectedSeason + (selectedTeam?.id || '') + (selectedPlayer?.id || '')}
+            key={activeTab + selectedSeason + (selectedTeam?.id || '') + (activeTab === 'equipos' ? (selectedPlayer?.id || '') : '')}
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3 }}

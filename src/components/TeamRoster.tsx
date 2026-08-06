@@ -71,10 +71,15 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
         }
 
         if (data && data.length > 0) {
-          const mappedPlayers = data.map((p: any) => ({
-            ...p,
-            teamId: p.team_id || p.teamid
-          }));
+          const mappedPlayers = data.map((p: any) => {
+            const secondPos = p.secondPosition || p.second_position || p.segunda_posicion || p.segunda_posicion_especifica || p.secondposition || '';
+            return {
+              ...p,
+              secondPosition: secondPos,
+              second_position: secondPos,
+              teamId: p.team_id || p.teamid || p.teamId
+            };
+          });
           setPlayers(mappedPlayers);
         }
       } catch (err: any) {
@@ -453,11 +458,6 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
                         <h5 className="text-[10px] font-bold text-slate-900 uppercase tracking-tight group-hover:text-sky-600 transition-colors truncate">
                           {player.name}
                         </h5>
-                        {(player.height || player.secondPosition) && (
-                          <p className="text-[9px] text-slate-400 font-medium truncate">
-                            {[player.height, player.secondPosition].filter(Boolean).join(' • ')}
-                          </p>
-                        )}
                       </div>
                     </div>
 

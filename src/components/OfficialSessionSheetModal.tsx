@@ -35,6 +35,7 @@ export default function OfficialSessionSheetModal({ session, team, season, onClo
         if (!error && data) {
           setAllPotentialPlayers(data.map(p => ({
             ...p,
+            secondPosition: p.secondPosition || p.second_position || p.segunda_posicion || p.segunda_posicion_especifica || p.secondposition || '',
             name: p.nombre || p.name,
             teamId: p.team_id || p.teamId
           })));

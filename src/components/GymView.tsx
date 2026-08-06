@@ -168,7 +168,7 @@ interface GymViewProps {
 
 function getYouTubeEmbedUrl(url: string | undefined): string | null {
   if (!url) return null;
-  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|shorts\/|watch\?v=|\&v=)([^#\&\?]*).*/;
   const match = url.match(regExp);
   return (match && match[2].length === 11) ? `https://www.youtube.com/embed/${match[2]}` : null;
 }
@@ -225,6 +225,7 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
           if (!error && data && data.length > 0) {
             loaded = data.map((p: any) => ({
               ...p,
+              secondPosition: p.secondPosition || p.second_position || p.segunda_posicion || p.segunda_posicion_especifica || p.secondposition || '',
               teamId: p.team_id || p.teamid
             }));
           }
@@ -1377,37 +1378,35 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
               <span className="text-xs text-slate-500 font-semibold">{players.length} jugadoras en plantilla</span>
             </div>
 
-            {/* Horizontal Carousel of Players */}
+            {/* Dropdown Selector of Players */}
             {players.length === 0 ? (
               <p className="text-xs text-slate-400 italic py-2">No hay jugadoras en la plantilla seleccionada.</p>
             ) : (
-              <div className="flex items-center gap-2 overflow-x-auto pb-2">
-                {players.map((p) => {
-                  const isSelected = selectedPlayerForGym?.id === p.id;
-                  const displayName = p.nombre ? `${p.nombre} ${p.apellidos || ''}` : p.name;
-                  const dorsal = p.dorsal || p.number || '#';
-
-                  return (
-                    <button
-                      key={p.id}
-                      onClick={() => setSelectedPlayerForGym(p)}
-                      className={`flex items-center gap-2.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shrink-0 border ${
-                        isSelected
-                          ? 'bg-slate-900 text-white border-slate-900 shadow-sm ring-2 ring-slate-900/20'
-                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                      }`}
-                    >
-                      {p.image ? (
-                        <img src={p.image} alt={displayName} className="w-6 h-6 rounded-full object-cover shrink-0" />
-                      ) : (
-                        <div className={`w-6 h-6 rounded-full text-[10px] font-black flex items-center justify-center shrink-0 ${isSelected ? 'bg-sky-500 text-white' : 'bg-slate-200 text-slate-700'}`}>
-                          #{dorsal}
-                        </div>
-                      )}
-                      <span className="truncate max-w-[120px]">{displayName}</span>
-                    </button>
-                  );
-                })}
+              <div className="relative max-w-md">
+                <select
+                  id="gym-player-select"
+                  value={selectedPlayerForGym?.id || ''}
+                  onChange={(e) => {
+                    const found = players.find((p) => p.id === e.target.value);
+                    setSelectedPlayerForGym(found || null);
+                  }}
+                  className="w-full bg-slate-50 border border-slate-300 text-slate-900 text-xs font-bold rounded-xl focus:ring-2 focus:ring-sky-500 focus:border-sky-500 p-3 pr-10 cursor-pointer appearance-none shadow-xs transition-all"
+                >
+                  <option value="">-- Selecciona una jugadora --</option>
+                  {players.map((p) => {
+                    const displayName = p.nombre ? `${p.nombre} ${p.apellidos || ''}` : p.name;
+                    const dorsal = p.dorsal || p.number ? `#${p.dorsal || p.number}` : '';
+                    const pos = p.demarcacion || p.posicion_especifica || p.position || '';
+                    return (
+                      <option key={p.id} value={p.id}>
+                        {dorsal ? `${dorsal} - ` : ''}{displayName} {pos ? `(${pos})` : ''}
+                      </option>
+                    );
+                  })}
+                </select>
+                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-slate-500">
+                  <ChevronDown className="w-4 h-4" />
+                </div>
               </div>
             )}
           </div>
@@ -1985,11 +1984,14 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
                     <div>
                       <input
                         type="url"
-                        placeholder="https://www.youtube.com/watch?v=... o https://youtu.be/..."
+                        placeholder="https://www.youtube.com/watch?v=..., https://youtu.be/... o Shorts"
                         value={exYoutubeUrl}
                         onChange={(e) => setExYoutubeUrl(e.target.value)}
                         className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-medium outline-none focus:border-sky-500"
                       />
+                      <p className="text-[10px] text-slate-400 mt-1 font-medium">
+                        Soporta vídeos de YouTube y YouTube Shorts.
+                      </p>
                       {exYoutubeUrl && getYouTubeEmbedUrl(exYoutubeUrl) && (
                         <div className="mt-2 relative aspect-video w-full rounded-lg overflow-hidden border border-slate-200 bg-black">
                           <iframe

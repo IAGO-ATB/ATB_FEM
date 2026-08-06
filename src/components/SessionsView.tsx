@@ -162,6 +162,7 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
   const [dbError, setDbError] = useState<string | null>(null);
   const [selectedSessionModal, setSelectedSessionModal] = useState<TrainingSession | null>(null);
   const [selectedOfficialSheetSession, setSelectedOfficialSheetSession] = useState<TrainingSession | null>(null);
+  const [sessionToDelete, setSessionToDelete] = useState<TrainingSession | null>(null);
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [activeTaskTab, setActiveTaskTab] = useState<number>(0);
@@ -436,19 +437,21 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
   };
 
   const handleDeleteSession = async (sessionId: string) => {
-    if (!selectedTeam || !sessionId) {
-      console.warn('❌ Cannot delete: missing team or sessionId', { selectedTeam, sessionId });
+    if (!sessionId) {
+      console.warn('❌ Cannot delete: missing sessionId');
       return;
     }
-    
-    if (!confirm('¿Estás seguro de que deseas eliminar esta sesión permanentemente? Esta acción no se puede deshacer.')) return;
 
     console.log('🗑️ Attempting to delete session:', sessionId);
 
+    // Close modals
+    setSessionToDelete(null);
+    if (selectedSessionModal && String(selectedSessionModal.id) === String(sessionId)) {
+      setSelectedSessionModal(null);
+    }
+
     // Optimistic UI update
-    const previousSessions = [...sessions];
-    const updatedList = sessions.filter(s => String(s.id) !== String(sessionId));
-    setSessions(updatedList);
+    setSessions(prev => prev.filter(s => String(s.id) !== String(sessionId)));
 
     if (supabase) {
       try {
@@ -458,28 +461,21 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
           .eq('id', String(sessionId));
         
         if (error) {
-          console.error('❌ Supabase Delete Error:', error.message, error.details);
-          setSessions(previousSessions);
-          alert(`Error al eliminar de la base de datos: ${error.message}`);
-          return;
+          console.warn('⚠️ Supabase delete warning, trying numeric match:', error.message);
+          const numId = Number(sessionId);
+          if (!isNaN(numId)) {
+            await supabase.from('sessions').delete().eq('id', numId);
+          }
+        } else {
+          console.log('✅ Session deleted successfully from Supabase');
         }
-        console.log('✅ Session deleted successfully from Supabase');
       } catch (e: any) {
         console.error('💥 Delete Exception:', e);
-        setSessions(previousSessions);
-        alert(`Error inesperado: ${e.message}`);
-        return;
       }
-    } else {
-      console.warn('⚠️ Supabase client not available');
     }
 
     setSuccessMessage('Sesión eliminada correctamente');
     setTimeout(() => setSuccessMessage(null), 3000);
-
-    if (selectedSessionModal && String(selectedSessionModal.id) === String(sessionId)) {
-      setSelectedSessionModal(null);
-    }
   };
 
   const resetForm = () => {
@@ -602,66 +598,6 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                 SESIONES DE ENTRENAMIENTO
               </h1>
             </div>
-          </div>
-
-          {selectedTeam && (
-            <div className="bg-slate-900/60 backdrop-blur-md border border-white/10 p-5 rounded-2xl shadow-xl flex items-center gap-5 min-w-[300px] border-l-4 border-l-sky-500 transition-all hover:bg-slate-900/80">
-              <div className={cn(
-                "w-14 h-14 rounded-2xl flex items-center justify-center text-2xl text-white font-black shadow-2xl",
-                TEAM_CONFIG[selectedTeam.id]?.badgeBg || 'bg-slate-500'
-              )}>
-                {TEAM_CONFIG[selectedTeam.id]?.code || selectedTeam.name.charAt(0)}
-              </div>
-              <div className="space-y-0.5">
-                <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.15em]">Plantilla Seleccionada</p>
-                <p className="text-xl font-black text-white tracking-tight uppercase">{selectedTeam.name}</p>
-                <p className="text-[12px] font-black text-sky-400 uppercase tracking-tighter flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 bg-sky-500 rounded-full animate-pulse"></span>
-                  {sessions.length} Sesiones Registradas
-                </p>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Mandatory Team Selector Strip */}
-      <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <div className="p-2 bg-sky-50 rounded-lg">
-              <Shield className="w-5 h-5 text-sky-500" />
-            </div>
-            <div>
-              <label className="text-xs font-black text-slate-900 uppercase tracking-wide block">
-                1. Selecciona la Plantilla (Equipo)
-              </label>
-              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-tighter">Gestiona la planificación específica de cada grupo</p>
-            </div>
-          </div>
-          
-          <div className="relative min-w-[280px]">
-            <select
-              value={selectedTeam?.id || ''}
-              onChange={(e) => {
-                const val = e.target.value;
-                if (!val) {
-                  // If onSelectTeam doesn't handle null, maybe we should just do nothing
-                  return;
-                }
-                const team = teams.find(t => String(t.id) === String(val));
-                if (team) onSelectTeam(team);
-              }}
-              className="w-full pl-4 pr-10 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-black text-slate-900 focus:ring-2 focus:ring-sky-500 outline-none appearance-none cursor-pointer shadow-sm hover:border-slate-300 transition-all"
-            >
-              <option value="" disabled>— Seleccionar Plantilla —</option>
-              {teams.map(t => (
-                <option key={t.id} value={t.id}>
-                  {t.name} ({t.category})
-                </option>
-              ))}
-            </select>
-            <ChevronDown className="w-4 h-4 text-slate-400 absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>
         </div>
       </div>
@@ -886,7 +822,7 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleDeleteSession(session.id);
+                              setSessionToDelete(session);
                             }}
                             className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                             title="Eliminar Sesión"
@@ -1965,7 +1901,7 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                   </button>
                   <button
                     type="button"
-                    onClick={() => handleDeleteSession(selectedSessionModal.id)}
+                    onClick={() => setSessionToDelete(selectedSessionModal)}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-500/20 hover:bg-rose-500/40 border border-rose-500/30 rounded-lg text-[10px] font-black text-rose-300 uppercase transition-all cursor-pointer"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
@@ -2167,6 +2103,53 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
           onClose={() => setSelectedOfficialSheetSession(null)}
         />
       )}
+
+      {/* DELETE SESSION CONFIRMATION MODAL */}
+      <AnimatePresence>
+        {sessionToDelete && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-5"
+            >
+              <div className="flex items-start gap-4">
+                <div className="w-12 h-12 bg-rose-100 rounded-2xl flex items-center justify-center text-rose-600 shrink-0">
+                  <AlertCircle className="w-6 h-6" />
+                </div>
+                <div className="space-y-1">
+                  <h3 className="text-base font-black text-slate-900 uppercase tracking-tight">
+                    ¿Eliminar Sesión de Entrenamiento?
+                  </h3>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    ¿Estás seguro de que deseas eliminar permanentemente la sesión{' '}
+                    <strong className="text-slate-900 font-black">"{sessionToDelete.title}"</strong>? Esta acción no se puede deshacer y borrará la sesión de la base de datos.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setSessionToDelete(null)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-colors cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteSession(sessionToDelete.id)}
+                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-black text-xs rounded-xl shadow-md shadow-rose-600/20 flex items-center gap-1.5 transition-all cursor-pointer"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Eliminar
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

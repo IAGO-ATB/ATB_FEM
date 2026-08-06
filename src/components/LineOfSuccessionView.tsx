@@ -84,13 +84,9 @@ export default function LineOfSuccessionView({ season, teams, selectedTeam, onSe
   const [loading, setLoading] = useState<boolean>(true);
   const [selectedSpot, setSelectedSpot] = useState<TacticalSpot | null>(TACTICAL_SPOTS[0]); // Default POR or first
   const [searchTerm, setSearchTerm] = useState<string>('');
-  const [includeSecondary, setIncludeSecondary] = useState<boolean>(true);
+  const [includeSecondary, setIncludeSecondary] = useState<boolean>(false);
   const [selectedPlayerModal, setSelectedPlayerModal] = useState<Player | null>(null);
-  const [teamFilter, setTeamFilter] = useState<string>(selectedTeam?.id || 'ALL');
-
-  useEffect(() => {
-    setTeamFilter(selectedTeam?.id || 'ALL');
-  }, [selectedTeam]);
+  const [teamFilter, setTeamFilter] = useState<string>('ALL');
 
   // Fetch all players across all teams for current season
   useEffect(() => {
@@ -107,8 +103,10 @@ export default function LineOfSuccessionView({ season, teams, selectedTeam, onSe
 
           if (!error && data && data.length > 0) {
             data.forEach((p: any) => {
+              const secondPos = p.secondPosition || p.second_position || p.segunda_posicion || p.segunda_posicion_especifica || p.secondposition || '';
               const mapped: Player = {
                 ...p,
+                secondPosition: secondPos,
                 teamId: p.team_id || p.teamid || p.teamId
               };
               combined.push(mapped);
@@ -126,24 +124,115 @@ export default function LineOfSuccessionView({ season, teams, selectedTeam, onSe
     loadAllPlayers();
   }, [season, teams]);
 
+  // Helper function to calculate player age string
+  const getPlayerAge = (p: Player): string => {
+    if (!p.fecha_nacimiento) return '—';
+    const fn = String(p.fecha_nacimiento).trim();
+    if (!fn) return '—';
+    
+    if (/^\d{2}$/.test(fn)) {
+      return `${fn} años`;
+    }
+
+    let birthDate: Date | null = null;
+    if (fn.includes('/')) {
+      const parts = fn.split('/');
+      if (parts.length === 3) {
+        birthDate = new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0]));
+      }
+    } else if (fn.includes('-')) {
+      const parts = fn.split('-');
+      if (parts.length === 3) {
+        if (parts[0].length === 4) {
+          birthDate = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+        } else if (parts[2].length === 4) {
+          birthDate = new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0]));
+        }
+      }
+    }
+    if (!birthDate || isNaN(birthDate.getTime())) {
+      birthDate = new Date(fn);
+    }
+    if (birthDate && !isNaN(birthDate.getTime())) {
+      const today = new Date();
+      let age = today.getFullYear() - birthDate.getFullYear();
+      const m = today.getMonth() - birthDate.getMonth();
+      if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+        age--;
+      }
+      if (age > 0 && age < 80) {
+        return `${age} años`;
+      }
+    }
+    return '—';
+  };
+
+  // Helper function to calculate birth timestamp for age sorting
+  const getPlayerBirthTimestamp = (p: Player): number => {
+    if (p.fecha_nacimiento) {
+      const fn = p.fecha_nacimiento.trim();
+      if (fn.includes('/')) {
+        const parts = fn.split('/');
+        if (parts.length === 3) {
+          const d = new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0]));
+          if (!isNaN(d.getTime())) return d.getTime();
+        }
+      } else if (fn.includes('-')) {
+        const parts = fn.split('-');
+        if (parts.length === 3) {
+          if (parts[0].length === 4) {
+            const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+            if (!isNaN(d.getTime())) return d.getTime();
+          } else if (parts[2].length === 4) {
+            const d = new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0]));
+            if (!isNaN(d.getTime())) return d.getTime();
+          }
+        }
+      }
+      const d = new Date(fn);
+      if (!isNaN(d.getTime())) return d.getTime();
+    }
+    return 9999999999990;
+  };
+
+  // Helper function to resolve team config / letter (A, B, C, D, E)
+  const getTeamInfo = (teamId?: string) => {
+    if (!teamId) {
+      return { code: 'A', label: 'ATB FEMENINO A', badgeBg: 'bg-sky-500', textCol: 'text-sky-500', borderCol: 'border-sky-500', priority: 1 };
+    }
+    if (TEAM_CONFIG[teamId]) {
+      return TEAM_CONFIG[teamId];
+    }
+
+    const teamObj = teams.find(t => t.id === teamId);
+    const nameToSearch = (teamObj?.name || teamObj?.category || teamId).toUpperCase();
+
+    if (nameToSearch.includes(' A') || nameToSearch.endsWith('A') || nameToSearch.includes('FEMENINO_A')) {
+      return TEAM_CONFIG['FEMENINO_A'];
+    }
+    if (nameToSearch.includes(' B') || nameToSearch.endsWith('B') || nameToSearch.includes('FEMENINO_B')) {
+      return TEAM_CONFIG['FEMENINO_B'];
+    }
+    if (nameToSearch.includes(' C') || nameToSearch.endsWith('C') || nameToSearch.includes('FEMENINO_C')) {
+      return TEAM_CONFIG['FEMENINO_C'];
+    }
+    if (nameToSearch.includes(' D') || nameToSearch.endsWith('D') || nameToSearch.includes('FEMENINO_D')) {
+      return TEAM_CONFIG['FEMENINO_D'];
+    }
+    if (nameToSearch.includes(' E') || nameToSearch.endsWith('E') || nameToSearch.includes('FEMENINO_E')) {
+      return TEAM_CONFIG['FEMENINO_E'];
+    }
+
+    return { code: 'A', label: teamObj?.name || teamId, badgeBg: 'bg-sky-500', textCol: 'text-sky-500', borderCol: 'border-sky-500', priority: 1 };
+  };
+
   // Helper function to get team priority code (A=1, B=2, C=3, D=4, E=5, others=99)
   const getTeamPriority = (teamId?: string): number => {
-    if (!teamId) return 99;
-    const cfg = TEAM_CONFIG[teamId];
-    if (cfg) return cfg.priority;
-    if (teamId.includes('_A')) return 1;
-    if (teamId.includes('_B')) return 2;
-    if (teamId.includes('_C')) return 3;
-    if (teamId.includes('_D')) return 4;
-    if (teamId.includes('_E')) return 5;
-    return 99;
+    return getTeamInfo(teamId).priority;
   };
 
   const getTeamLetter = (teamId?: string): string => {
-    if (!teamId) return '?';
-    if (TEAM_CONFIG[teamId]) return TEAM_CONFIG[teamId].code;
-    const parts = teamId.split('_');
-    return parts[parts.length - 1] || '?';
+    return getTeamInfo(teamId).code;
   };
 
   // Match player to tactical spot
@@ -203,10 +292,13 @@ export default function LineOfSuccessionView({ season, teams, selectedTeam, onSe
       }
     });
 
-    // Sort by team priority (1=A, 2=B, 3=C, 4=D, 5=E), then primary over secondary, then dorsal/number
+    // Sort by team priority (1=A, 2=B, 3=C, 4=D, 5=E), then primary over secondary, then by age (older first), then dorsal/number
     matchedList.sort((a, b) => {
       if (a.priority !== b.priority) return a.priority - b.priority;
       if (a.isSecondary !== b.isSecondary) return a.isSecondary ? 1 : -1;
+      const birthA = getPlayerBirthTimestamp(a.player);
+      const birthB = getPlayerBirthTimestamp(b.player);
+      if (birthA !== birthB) return birthA - birthB;
       const numA = Number(a.player.number || a.player.dorsal || 999);
       const numB = Number(b.player.number || b.player.dorsal || 999);
       return numA - numB;
@@ -247,6 +339,9 @@ export default function LineOfSuccessionView({ season, teams, selectedTeam, onSe
     list.sort((a, b) => {
       if (a.priority !== b.priority) return a.priority - b.priority;
       if (a.isSecondary !== b.isSecondary) return a.isSecondary ? 1 : -1;
+      const birthA = getPlayerBirthTimestamp(a.player);
+      const birthB = getPlayerBirthTimestamp(b.player);
+      if (birthA !== birthB) return birthA - birthB;
       const numA = Number(a.player.number || a.player.dorsal || 999);
       const numB = Number(b.player.number || b.player.dorsal || 999);
       return numA - numB;
@@ -276,9 +371,6 @@ export default function LineOfSuccessionView({ season, teams, selectedTeam, onSe
               <Layers className="w-7 h-7 text-sky-400" />
               Línea de Sucesión
             </h1>
-            <p className="text-slate-300 text-xs md:text-sm mt-1 max-w-2xl leading-relaxed">
-              Mapa táctico e itinerario de jerarquía por posición. Las jugadoras están ordenadas estrictamente por equipo (<span className="font-bold text-sky-400">A &gt; B &gt; C &gt; D &gt; E</span>) para visualizar la profundidad y relevos en la cantera.
-            </p>
           </div>
 
           <div className="flex items-center gap-2 bg-slate-900/80 p-3 rounded-xl border border-slate-700 shrink-0">
@@ -290,18 +382,6 @@ export default function LineOfSuccessionView({ season, teams, selectedTeam, onSe
               <Users className="w-5 h-5 text-sky-400" />
             </div>
           </div>
-        </div>
-
-        {/* Legend Team Colors */}
-        <div className="mt-6 pt-4 border-t border-slate-800 flex flex-wrap items-center gap-3 text-xs">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mr-1">Orden de Equipos:</span>
-          {Object.entries(TEAM_CONFIG).map(([tId, cfg]) => (
-            <div key={tId} className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-800/80 rounded-lg border border-slate-700">
-              <span className={cn("w-2.5 h-2.5 rounded-full", cfg.badgeBg)} />
-              <span className="font-bold text-white text-[11px]">{cfg.code}</span>
-              <span className="text-[10px] text-slate-400 font-medium">({cfg.label.replace('ATB ', '')})</span>
-            </div>
-          ))}
         </div>
       </div>
 
@@ -367,13 +447,7 @@ export default function LineOfSuccessionView({ season, teams, selectedTeam, onSe
                 <Shield className="w-4 h-4 text-sky-500" />
                 Campograma Táctico 1-4-2-3-1
               </h3>
-              <p className="text-[11px] text-slate-500 font-medium">
-                Pulsadores con número de jugadoras en plantilla ordenadas A &gt; B &gt; C &gt; D &gt; E
-              </p>
             </div>
-            <span className="text-[10px] font-bold px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full uppercase">
-              Interactiva
-            </span>
           </div>
 
           {/* Green Pitch Container */}
@@ -483,17 +557,11 @@ export default function LineOfSuccessionView({ season, teams, selectedTeam, onSe
           {selectedSpot ? (
             <div className="bg-white rounded-2xl border border-slate-200 shadow-md p-5 space-y-4">
               {/* Header for Selected Position */}
-              <div className="flex items-start justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                 <div>
-                  <span className="px-2.5 py-0.5 bg-sky-100 text-sky-700 text-[10px] font-black uppercase rounded-full tracking-wider">
-                    Posición Seleccionada
-                  </span>
-                  <h3 className="text-xl font-black text-slate-900 mt-1 flex items-center gap-2">
+                  <h3 className="text-xl font-black text-slate-900 flex items-center gap-2">
                     {selectedSpot.label}
                   </h3>
-                  <p className="text-xs text-slate-500 font-medium">
-                    {selectedSpot.description}
-                  </p>
                 </div>
 
                 <div className="text-right">
@@ -502,19 +570,12 @@ export default function LineOfSuccessionView({ season, teams, selectedTeam, onSe
                 </div>
               </div>
 
-              {/* Hierarchy Order Explanation */}
-              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs text-slate-600 flex items-center gap-2">
-                <Info className="w-4 h-4 text-sky-600 shrink-0" />
-                <span>Las jugadoras se muestran clasificadas en orden jerárquico por equipo: <strong className="text-slate-900">Equipo A → B → C → D → E</strong>.</span>
-              </div>
-
               {/* Player Succession List */}
               <div className="space-y-2.5 max-h-[520px] overflow-y-auto pr-1">
                 {selectedSpotFullList.length > 0 ? (
                   selectedSpotFullList.map((item, idx) => {
                     const p = item.player;
-                    const teamCfg = TEAM_CONFIG[p.teamId || ''] || { code: '?', label: p.teamId, badgeBg: 'bg-slate-500', textCol: 'text-slate-600', borderCol: 'border-slate-300', priority: 99 };
-                    const isFirstChoice = idx === 0 && !item.isSecondary;
+                    const teamCfg = getTeamInfo(p.teamId);
 
                     return (
                       <motion.div
@@ -522,27 +583,20 @@ export default function LineOfSuccessionView({ season, teams, selectedTeam, onSe
                         initial={{ opacity: 0, x: 10 }}
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: idx * 0.05 }}
-                        className={cn(
-                          "p-3 rounded-xl border transition-all flex items-center justify-between gap-3 group hover:shadow-md cursor-pointer",
-                          isFirstChoice 
-                            ? "bg-gradient-to-r from-sky-50 to-white border-sky-300 ring-1 ring-sky-200" 
-                            : "bg-white border-slate-200 hover:border-slate-300"
-                        )}
+                        className="p-3 rounded-xl border border-slate-200 bg-white hover:border-slate-300 transition-all flex items-center justify-between gap-3 group hover:shadow-md cursor-pointer"
                         onClick={() => {
                           setSelectedPlayerModal(p);
-                          if (onSelectPlayer) onSelectPlayer(p);
                         }}
                       >
                         <div className="flex items-center gap-3 min-w-0">
-                          {/* Order Badge / Index */}
+                          {/* Team Badge (A, B, C, D, E) */}
                           <div className="flex flex-col items-center justify-center shrink-0">
                             <span className={cn(
-                              "w-6 h-6 rounded-full flex items-center justify-center text-xs font-black text-white shadow-sm",
+                              "w-7 h-7 rounded-full flex items-center justify-center text-xs font-black text-white shadow-xs",
                               teamCfg.badgeBg
                             )}>
                               {teamCfg.code}
                             </span>
-                            <span className="text-[9px] font-bold text-slate-400 mt-0.5">#{idx + 1}</span>
                           </div>
 
                           {/* Avatar */}
@@ -562,12 +616,6 @@ export default function LineOfSuccessionView({ season, teams, selectedTeam, onSe
                               <h4 className="text-xs font-extrabold text-slate-900 group-hover:text-sky-600 transition-colors truncate">
                                 {p.name}
                               </h4>
-                              {isFirstChoice && (
-                                <span className="inline-flex items-center gap-1 px-1.5 py-0.2 bg-amber-100 text-amber-800 text-[9px] font-black rounded uppercase">
-                                  <Star className="w-2.5 h-2.5 fill-amber-500 text-amber-500" />
-                                  Titular A
-                                </span>
-                              )}
                               {item.isSecondary && (
                                 <span className="px-1.5 py-0.2 bg-slate-100 text-slate-600 text-[9px] font-bold rounded uppercase">
                                   2ª Posición
@@ -576,7 +624,7 @@ export default function LineOfSuccessionView({ season, teams, selectedTeam, onSe
                             </div>
 
                             <p className="text-[10px] text-slate-500 font-semibold truncate mt-0.5">
-                              {teamCfg.label} • Dorsal: <span className="text-slate-800 font-bold">{p.number || p.dorsal || 'Sin dorsal'}</span>
+                              Dorsal: <span className="text-slate-800 font-bold">{p.number || p.dorsal || 'Sin dorsal'}</span>
                             </p>
 
                             {(p.height || p.lateralidad) && (
@@ -588,7 +636,17 @@ export default function LineOfSuccessionView({ season, teams, selectedTeam, onSe
                         </div>
 
                         <div className="shrink-0 flex items-center gap-2">
-                          <Eye className="w-4 h-4 text-slate-400 group-hover:text-sky-500 transition-colors" />
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedPlayerModal(p);
+                            }}
+                            className="p-2 rounded-lg bg-slate-50 hover:bg-sky-50 text-slate-400 hover:text-sky-600 border border-slate-200 transition-colors shadow-2xs"
+                            title="Ver ficha ampliada de la jugadora"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
                         </div>
                       </motion.div>
                     );
@@ -624,14 +682,6 @@ export default function LineOfSuccessionView({ season, teams, selectedTeam, onSe
               Visión global de todas las jugadoras en el club estructuradas de mayor a menor jerarquía (Equipo A a Equipo E)
             </p>
           </div>
-
-          <div className="flex items-center gap-2 text-xs font-bold text-slate-500">
-            <span className="w-2.5 h-2.5 bg-sky-500 rounded-full" /> A
-            <span className="w-2.5 h-2.5 bg-emerald-500 rounded-full ml-1" /> B
-            <span className="w-2.5 h-2.5 bg-amber-500 rounded-full ml-1" /> C
-            <span className="w-2.5 h-2.5 bg-purple-500 rounded-full ml-1" /> D
-            <span className="w-2.5 h-2.5 bg-rose-500 rounded-full ml-1" /> E
-          </div>
         </div>
 
         {/* Grouped Table by 11 Specific Positions */}
@@ -657,14 +707,13 @@ export default function LineOfSuccessionView({ season, teams, selectedTeam, onSe
                   {list.length > 0 ? (
                     list.map((item, i) => {
                       const p = item.player;
-                      const tCfg = TEAM_CONFIG[p.teamId || ''] || { code: '?', badgeBg: 'bg-slate-400' };
+                      const tCfg = getTeamInfo(p.teamId);
 
                       return (
                         <div 
                           key={p.id + i}
                           onClick={() => {
                             setSelectedPlayerModal(p);
-                            if (onSelectPlayer) onSelectPlayer(p);
                           }}
                           className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-100 hover:border-sky-300 transition-colors cursor-pointer text-xs"
                         >
@@ -676,11 +725,9 @@ export default function LineOfSuccessionView({ season, teams, selectedTeam, onSe
                           </div>
 
                           <div className="flex items-center gap-1.5 shrink-0">
-                            {p.number || p.dorsal ? (
-                              <span className="text-[10px] font-black text-slate-500 bg-slate-100 px-1.5 py-0.2 rounded">
-                                #{p.number || p.dorsal}
-                              </span>
-                            ) : null}
+                            <span className="text-[10px] font-black text-slate-500 bg-slate-100 px-1.5 py-0.2 rounded">
+                              {getPlayerAge(p)}
+                            </span>
                             {item.isSecondary && (
                               <span className="text-[8px] font-bold text-slate-400 uppercase">2ª</span>
                             )}
@@ -700,87 +747,167 @@ export default function LineOfSuccessionView({ season, teams, selectedTeam, onSe
         </div>
       </div>
 
-      {/* Player Detail Modal */}
+      {/* Player Detail Modal - Ficha Ampliada de la Jugadora */}
       <AnimatePresence>
         {selectedPlayerModal && (
-          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
             <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-2xl max-w-md w-full overflow-hidden shadow-2xl border border-slate-100"
+              initial={{ scale: 0.95, opacity: 0, y: 10 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 10 }}
+              className="bg-white rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl border border-slate-100 my-auto"
             >
-              <div className="relative bg-gradient-to-r from-slate-900 to-sky-950 p-6 text-white">
+              {/* Header */}
+              <div className="relative bg-gradient-to-r from-slate-900 via-slate-800 to-sky-950 p-6 text-white">
                 <button 
                   onClick={() => setSelectedPlayerModal(null)} 
-                  className="absolute top-4 right-4 text-slate-400 hover:text-white bg-slate-800/80 p-1.5 rounded-full"
+                  className="absolute top-4 right-4 text-slate-400 hover:text-white bg-slate-800/80 hover:bg-slate-700 p-2 rounded-full transition-colors"
+                  title="Cerrar"
                 >
                   <X className="w-4 h-4" />
                 </button>
 
-                <div className="flex items-center gap-4">
-                  <div className="w-16 h-16 rounded-full border-2 border-white overflow-hidden bg-slate-800 shrink-0">
+                <div className="flex items-center gap-4 pr-8">
+                  <div className="w-20 h-20 rounded-2xl border-2 border-white/20 overflow-hidden bg-slate-800 shrink-0 shadow-lg flex items-center justify-center">
                     {selectedPlayerModal.image ? (
                       <img src={selectedPlayerModal.image} alt={selectedPlayerModal.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                     ) : (
-                      <div className="w-full h-full flex items-center justify-center font-black text-xl text-slate-400">
-                        {selectedPlayerModal.number || selectedPlayerModal.dorsal || '#'}
+                      <div className="w-full h-full flex items-center justify-center font-black text-2xl text-slate-400 bg-slate-800">
+                        #{selectedPlayerModal.number || selectedPlayerModal.dorsal || '?'}
                       </div>
                     )}
                   </div>
 
-                  <div>
+                  <div className="min-w-0">
                     <span className={cn(
-                      "px-2 py-0.5 rounded text-[10px] font-black uppercase text-white inline-block mb-1",
-                      TEAM_CONFIG[selectedPlayerModal.teamId || '']?.badgeBg || 'bg-slate-600'
+                      "px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase text-white inline-block mb-1.5 shadow-2xs",
+                      getTeamInfo(selectedPlayerModal.teamId).badgeBg
                     )}>
-                      {TEAM_CONFIG[selectedPlayerModal.teamId || '']?.label || selectedPlayerModal.teamId}
+                      {getTeamInfo(selectedPlayerModal.teamId).label}
                     </span>
-                    <h3 className="text-lg font-black leading-tight">{selectedPlayerModal.name}</h3>
-                    <p className="text-xs text-sky-300 font-semibold mt-0.5">
-                      Dorsal #{selectedPlayerModal.number || selectedPlayerModal.dorsal || 'Sin dorsal'}
+                    <h3 className="text-xl font-black leading-tight truncate">
+                      {selectedPlayerModal.nombre ? `${selectedPlayerModal.nombre} ${selectedPlayerModal.apellidos || ''}` : selectedPlayerModal.name}
+                    </h3>
+                    <p className="text-xs text-sky-300 font-bold mt-1 flex items-center gap-2">
+                      <span>Dorsal: <strong className="text-white">#{selectedPlayerModal.number || selectedPlayerModal.dorsal || 's/d'}</strong></span>
+                      <span>•</span>
+                      <span>{selectedPlayerModal.posicion_especifica || selectedPlayerModal.demarcacion || selectedPlayerModal.position || 'Jugadora'}</span>
                     </p>
                   </div>
                 </div>
               </div>
 
-              <div className="p-6 space-y-4 text-xs">
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase">Demarcación Principal</p>
-                    <p className="text-sm font-black text-slate-800 mt-0.5">
-                      {selectedPlayerModal.posicion_especifica || selectedPlayerModal.position || '—'}
-                    </p>
-                  </div>
+              {/* Body Content */}
+              <div className="p-6 space-y-5 text-xs max-h-[70vh] overflow-y-auto">
+                {/* Datos Tácticos y Físicos */}
+                <div>
+                  <h4 className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
+                    <Shield className="w-3.5 h-3.5 text-sky-500" />
+                    Información Táctica y Física
+                  </h4>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase">Demarcación Principal</p>
+                      <p className="text-xs font-black text-slate-800 mt-0.5">
+                        {selectedPlayerModal.posicion_especifica || selectedPlayerModal.demarcacion || selectedPlayerModal.position || '—'}
+                      </p>
+                    </div>
 
-                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase">Segunda Posición</p>
-                    <p className="text-sm font-black text-slate-800 mt-0.5">
-                      {selectedPlayerModal.secondPosition || 'Ninguna'}
-                    </p>
-                  </div>
+                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase">Segunda Posición</p>
+                      <p className="text-xs font-black text-slate-800 mt-0.5">
+                        {selectedPlayerModal.secondPosition || 'Ninguna'}
+                      </p>
+                    </div>
 
-                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase">Altura</p>
-                    <p className="text-sm font-black text-slate-800 mt-0.5">
-                      {selectedPlayerModal.height || '—'}
-                    </p>
-                  </div>
+                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase">Altura</p>
+                      <p className="text-xs font-black text-slate-800 mt-0.5">
+                        {selectedPlayerModal.height || '—'}
+                      </p>
+                    </div>
 
-                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase">Lateralidad</p>
-                    <p className="text-sm font-black text-slate-800 mt-0.5">
-                      {selectedPlayerModal.lateralidad || 'Sin especificar'}
-                    </p>
+                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase">Lateralidad</p>
+                      <p className="text-xs font-black text-slate-800 mt-0.5">
+                        {selectedPlayerModal.lateralidad || 'Sin especificar'}
+                      </p>
+                    </div>
                   </div>
                 </div>
+
+                {/* Personal Info */}
+                <div>
+                  <h4 className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
+                    <Users className="w-3.5 h-3.5 text-sky-500" />
+                    Datos Personales
+                  </h4>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase">Fecha de Nacimiento</p>
+                      <p className="text-xs font-black text-slate-800 mt-0.5">
+                        {selectedPlayerModal.fecha_nacimiento || 'No registrada'}
+                      </p>
+                    </div>
+
+                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase">Equipo</p>
+                      <p className="text-xs font-black text-slate-800 mt-0.5">
+                        {getTeamInfo(selectedPlayerModal.teamId).label}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Statistics if available */}
+                {selectedPlayerModal.stats && (
+                  <div>
+                    <h4 className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
+                      <Award className="w-3.5 h-3.5 text-sky-500" />
+                      Estadísticas de la Temporada
+                    </h4>
+                    <div className="grid grid-cols-4 gap-2 text-center">
+                      <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                        <p className="text-[9px] font-bold text-slate-400 uppercase">Partidos</p>
+                        <p className="text-sm font-black text-slate-800 mt-0.5">{selectedPlayerModal.stats.matchesPlayed ?? 0}</p>
+                      </div>
+                      <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                        <p className="text-[9px] font-bold text-slate-400 uppercase">Goles</p>
+                        <p className="text-sm font-black text-emerald-600 mt-0.5">{selectedPlayerModal.stats.goals ?? 0}</p>
+                      </div>
+                      <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                        <p className="text-[9px] font-bold text-slate-400 uppercase">Asist.</p>
+                        <p className="text-sm font-black text-sky-600 mt-0.5">{selectedPlayerModal.stats.assists ?? 0}</p>
+                      </div>
+                      <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                        <p className="text-[9px] font-bold text-slate-400 uppercase">Tarjetas</p>
+                        <p className="text-sm font-black text-amber-600 mt-0.5">
+                          {(selectedPlayerModal.stats.yellowCards ?? 0) + (selectedPlayerModal.stats.redCards ?? 0)}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Observaciones */}
+                {selectedPlayerModal.observaciones && (
+                  <div>
+                    <h4 className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                      <Info className="w-3.5 h-3.5 text-sky-500" />
+                      Observaciones / Notas
+                    </h4>
+                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-slate-700 leading-relaxed text-xs italic">
+                      "{selectedPlayerModal.observaciones}"
+                    </div>
+                  </div>
+                )}
 
                 <div className="pt-2">
                   <button 
                     onClick={() => setSelectedPlayerModal(null)}
-                    className="w-full bg-slate-900 text-white font-bold py-2.5 rounded-xl hover:bg-slate-800 transition-colors"
+                    className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 rounded-xl transition-colors shadow-sm text-xs cursor-pointer"
                   >
-                    Cerrar
+                    Cerrar Ficha
                   </button>
                 </div>
               </div>

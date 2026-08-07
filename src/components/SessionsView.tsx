@@ -26,11 +26,17 @@ import {
   AlertCircle,
   Award,
   ChevronDown,
+  ChevronUp,
+  Folder,
+  FolderOpen,
   Plus,
   Users,
   LayoutList,
   ImagePlus,
-  ImageIcon
+  ImageIcon,
+  Crop,
+  BarChart3,
+  Download
 } from 'lucide-react';
 import { 
   format, 
@@ -51,8 +57,7 @@ import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabase';
 import ImageEditorModal from './ImageEditorModal';
 import OfficialSessionSheetModal from './OfficialSessionSheetModal';
-
-const DEFAULT_SQUAD_NAMES: string[] = [];
+import TipologiaModal from './TipologiaModal';
 
 export interface DetailedSquadPlayer {
   id: string;
@@ -61,8 +66,6 @@ export interface DetailedSquadPlayer {
   positionCategory: 'PORTERAS' | 'DEFENSORAS' | 'CENTROCAMPISTAS' | 'DELANTERAS' | 'OTRAS';
   image?: string;
 }
-
-const DEFAULT_SQUAD_DETAILED: DetailedSquadPlayer[] = [];
 
 const normalizeCategory = (pos?: string): 'PORTERAS' | 'DEFENSORAS' | 'CENTROCAMPISTAS' | 'DELANTERAS' | 'OTRAS' => {
   if (!pos) return 'OTRAS';
@@ -74,38 +77,175 @@ const normalizeCategory = (pos?: string): 'PORTERAS' | 'DEFENSORAS' | 'CENTROCAM
   return 'OTRAS';
 };
 
-const getDetailedSquadPlayersForTeam = (teamId?: string, seasonStr?: string): DetailedSquadPlayer[] => {
-  let players: any[] = [];
-  
-  // If it's FEMENINO_A, use defaults
-  if (teamId === 'FEMENINO_A') {
-    players = DEFAULT_SQUAD_DETAILED.map(p => ({
-      id: p.id,
-      nombre: p.name.split(' ')[0],
-      apellidos: p.name.split(' ').slice(1).join(' '),
-      dorsal: p.number,
-      demarcacion: p.positionCategory,
-      image: p.image
-    }));
-  }
-
-  return players.map((p, i) => {
-    const rawName = p.nombre || p.name || `Jugadora ${i + 1}`;
-    const num = (p.dorsal !== undefined && p.dorsal !== null) ? p.dorsal : p.number;
-    
-    const cat = p.positionCategory || normalizeCategory(p.demarcacion || p.position);
-    return {
-      id: p.id || `p_${teamId || 'unknown'}_${i}`,
-      name: rawName,
-      number: num,
-      positionCategory: cat as any,
-      image: p.image
-    };
-  });
+const DEFAULT_SQUAD_MAP: Record<string, DetailedSquadPlayer[]> = {
+  FEMENINO_A: [
+    { id: 'pa_1', name: 'Laura Martínez', number: 1, positionCategory: 'PORTERAS' },
+    { id: 'pa_13', name: 'Blanca Moreno', number: 13, positionCategory: 'PORTERAS' },
+    { id: 'pa_2', name: 'Lucía Fernández', number: 2, positionCategory: 'DEFENSORAS' },
+    { id: 'pa_3', name: 'Marta Pastor', number: 3, positionCategory: 'DEFENSORAS' },
+    { id: 'pa_4', name: 'Carla Rodríguez', number: 4, positionCategory: 'DEFENSORAS' },
+    { id: 'pa_5', name: 'Andrea Alcaide', number: 5, positionCategory: 'DEFENSORAS' },
+    { id: 'pa_12', name: 'Sonia Ramírez', number: 12, positionCategory: 'DEFENSORAS' },
+    { id: 'pa_15', name: 'Nuria Pomer', number: 15, positionCategory: 'DEFENSORAS' },
+    { id: 'pa_6', name: 'Ruth Álvarez', number: 6, positionCategory: 'CENTROCAMPISTAS' },
+    { id: 'pa_8', name: 'Aina Torres', number: 8, positionCategory: 'CENTROCAMPISTAS' },
+    { id: 'pa_10', name: 'Elena Gómez', number: 10, positionCategory: 'CENTROCAMPISTAS' },
+    { id: 'pa_14', name: 'Marina Bestard', number: 14, positionCategory: 'CENTROCAMPISTAS' },
+    { id: 'pa_16', name: 'Paula Vitoria', number: 16, positionCategory: 'CENTROCAMPISTAS' },
+    { id: 'pa_7', name: 'Paula Serra', number: 7, positionCategory: 'DELANTERAS' },
+    { id: 'pa_9', name: 'Sofía Ruiz', number: 9, positionCategory: 'DELANTERAS' },
+    { id: 'pa_11', name: 'Alba Coll', number: 11, positionCategory: 'DELANTERAS' },
+    { id: 'pa_17', name: 'Maria Heras', number: 17, positionCategory: 'DELANTERAS' },
+    { id: 'pa_19', name: 'Joana Roig', number: 19, positionCategory: 'DELANTERAS' }
+  ],
+  FEMENINO_B: [
+    { id: 'pb_1', name: 'Catalina Fullana', number: 1, positionCategory: 'PORTERAS' },
+    { id: 'pb_13', name: 'Nerea López', number: 13, positionCategory: 'PORTERAS' },
+    { id: 'pb_2', name: 'Ainhoa García', number: 2, positionCategory: 'DEFENSORAS' },
+    { id: 'pb_3', name: 'Maria Bauzà', number: 3, positionCategory: 'DEFENSORAS' },
+    { id: 'pb_4', name: 'Paula Vich', number: 4, positionCategory: 'DEFENSORAS' },
+    { id: 'pb_5', name: 'Emma Riera', number: 5, positionCategory: 'DEFENSORAS' },
+    { id: 'pb_12', name: 'Mar Mairata', number: 12, positionCategory: 'DEFENSORAS' },
+    { id: 'pb_6', name: 'Mireia Rotger', number: 6, positionCategory: 'CENTROCAMPISTAS' },
+    { id: 'pb_8', name: 'Julia Bestard', number: 8, positionCategory: 'CENTROCAMPISTAS' },
+    { id: 'pb_10', name: 'Neus Pujol', number: 10, positionCategory: 'CENTROCAMPISTAS' },
+    { id: 'pb_14', name: 'Marta Pons', number: 14, positionCategory: 'CENTROCAMPISTAS' },
+    { id: 'pb_7', name: 'Laura Bennasar', number: 7, positionCategory: 'DELANTERAS' },
+    { id: 'pb_9', name: 'Carla Juan', number: 9, positionCategory: 'DELANTERAS' },
+    { id: 'pb_11', name: 'Cristina Coll', number: 11, positionCategory: 'DELANTERAS' },
+    { id: 'pb_17', name: 'Aina Font', number: 17, positionCategory: 'DELANTERAS' }
+  ],
+  FEMENINO_C: [
+    { id: 'pc_1', name: 'Paula Salom', number: 1, positionCategory: 'PORTERAS' },
+    { id: 'pc_2', name: 'Clara Oliver', number: 2, positionCategory: 'DEFENSORAS' },
+    { id: 'pc_3', name: 'Nuria Servera', number: 3, positionCategory: 'DEFENSORAS' },
+    { id: 'pc_4', name: 'Isabel Vidal', number: 4, positionCategory: 'DEFENSORAS' },
+    { id: 'pc_5', name: 'Sara Munar', number: 5, positionCategory: 'DEFENSORAS' },
+    { id: 'pc_6', name: 'Laura Rosselló', number: 6, positionCategory: 'CENTROCAMPISTAS' },
+    { id: 'pc_8', name: 'Aina Lladó', number: 8, positionCategory: 'CENTROCAMPISTAS' },
+    { id: 'pc_10', name: 'Marta Company', number: 10, positionCategory: 'CENTROCAMPISTAS' },
+    { id: 'pc_7', name: 'Maria Capó', number: 7, positionCategory: 'DELANTERAS' },
+    { id: 'pc_9', name: 'Carmen Palmer', number: 9, positionCategory: 'DELANTERAS' },
+    { id: 'pc_11', name: 'Lucia Barceló', number: 11, positionCategory: 'DELANTERAS' }
+  ],
+  FEMENINO_D: [
+    { id: 'pd_1', name: 'Neus Bennasar', number: 1, positionCategory: 'PORTERAS' },
+    { id: 'pd_2', name: 'Alba Riera', number: 2, positionCategory: 'DEFENSORAS' },
+    { id: 'pd_3', name: 'Maria Oliver', number: 3, positionCategory: 'DEFENSORAS' },
+    { id: 'pd_4', name: 'Carla Bauzà', number: 4, positionCategory: 'DEFENSORAS' },
+    { id: 'pd_5', name: 'Laura Font', number: 5, positionCategory: 'DEFENSORAS' },
+    { id: 'pd_6', name: 'Sofia Rotger', number: 6, positionCategory: 'CENTROCAMPISTAS' },
+    { id: 'pd_8', name: 'Marta Lladó', number: 8, positionCategory: 'CENTROCAMPISTAS' },
+    { id: 'pd_10', name: 'Paula Bestard', number: 10, positionCategory: 'CENTROCAMPISTAS' },
+    { id: 'pd_7', name: 'Aina Vich', number: 7, positionCategory: 'DELANTERAS' },
+    { id: 'pd_9', name: 'Julia Coll', number: 9, positionCategory: 'DELANTERAS' },
+    { id: 'pd_11', name: 'Clara Fullana', number: 11, positionCategory: 'DELANTERAS' }
+  ],
+  FEMENINO_E: [
+    { id: 'pe_1', name: 'Marina Salom', number: 1, positionCategory: 'PORTERAS' },
+    { id: 'pe_2', name: 'Ainhoa Vidal', number: 2, positionCategory: 'DEFENSORAS' },
+    { id: 'pe_3', name: 'Laura Servera', number: 3, positionCategory: 'DEFENSORAS' },
+    { id: 'pe_4', name: 'Sara Oliver', number: 4, positionCategory: 'DEFENSORAS' },
+    { id: 'pe_6', name: 'Paula Rosselló', number: 6, positionCategory: 'CENTROCAMPISTAS' },
+    { id: 'pe_8', name: 'Maria Lladó', number: 8, positionCategory: 'CENTROCAMPISTAS' },
+    { id: 'pe_7', name: 'Carla Palmer', number: 7, positionCategory: 'DELANTERAS' },
+    { id: 'pe_9', name: 'Neus Barceló', number: 9, positionCategory: 'DELANTERAS' }
+  ]
 };
 
-const getSquadPlayersForTeam = (teamId?: string, seasonStr?: string): string[] => {
-  const detailed = getDetailedSquadPlayersForTeam(teamId, seasonStr);
+const getDetailedSquadPlayersForTeam = (
+  teamId?: string, 
+  seasonStr?: string, 
+  dbPlayersMap?: Record<string, DetailedSquadPlayer[]>,
+  teamsList?: Team[]
+): DetailedSquadPlayer[] => {
+  if (!teamId) return DEFAULT_SQUAD_MAP['FEMENINO_A'] || [];
+
+  if (dbPlayersMap && Object.keys(dbPlayersMap).length > 0) {
+    // 1. Direct match
+    if (dbPlayersMap[teamId] && dbPlayersMap[teamId].length > 0) {
+      return dbPlayersMap[teamId];
+    }
+
+    // 2. Case-insensitive key match
+    const upperId = teamId.toUpperCase();
+    const caseMatchKey = Object.keys(dbPlayersMap).find(k => k.toUpperCase() === upperId);
+    if (caseMatchKey && dbPlayersMap[caseMatchKey].length > 0) {
+      return dbPlayersMap[caseMatchKey];
+    }
+
+    // 3. Match via teamsList
+    if (teamsList && teamsList.length > 0) {
+      const teamObj = teamsList.find(t => 
+        t.id === teamId || 
+        t.id.toUpperCase() === upperId ||
+        t.name.toUpperCase().includes(upperId) ||
+        upperId.includes(t.id.toUpperCase())
+      );
+      if (teamObj) {
+        const teamObjKeys = [teamObj.id, teamObj.name, teamObj.category].filter(Boolean);
+        for (const tok of teamObjKeys) {
+          const matchedK = Object.keys(dbPlayersMap).find(k => 
+            k.toUpperCase() === tok!.toUpperCase() || 
+            tok!.toUpperCase().includes(k.toUpperCase()) || 
+            k.toUpperCase().includes(tok!.toUpperCase())
+          );
+          if (matchedK && dbPlayersMap[matchedK].length > 0) {
+            return dbPlayersMap[matchedK];
+          }
+        }
+      }
+    }
+
+    // 4. Substring / code matching (e.g. key ends with '_B' or contains 'FEMENINO_B' or 'FEMENINO B')
+    const codeMatchKey = Object.keys(dbPlayersMap).find(k => {
+      const kU = k.toUpperCase();
+      if (upperId.includes('FEMENINO_B') || upperId.includes('FEMENINO B') || upperId.endsWith('_B') || upperId === 'B') {
+        return kU.includes('FEMENINO_B') || kU.includes('FEMENINO B') || kU.endsWith('_B') || kU.endsWith(' B');
+      }
+      if (upperId.includes('FEMENINO_A') || upperId.includes('FEMENINO A') || upperId.endsWith('_A') || upperId === 'A') {
+        return kU.includes('FEMENINO_A') || kU.includes('FEMENINO A') || kU.endsWith('_A') || kU.endsWith(' A');
+      }
+      if (upperId.includes('FEMENINO_C') || upperId.includes('FEMENINO C') || upperId.endsWith('_C') || upperId === 'C') {
+        return kU.includes('FEMENINO_C') || kU.includes('FEMENINO C') || kU.endsWith('_C') || kU.endsWith(' C');
+      }
+      if (upperId.includes('FEMENINO_D') || upperId.includes('FEMENINO D') || upperId.endsWith('_D') || upperId === 'D') {
+        return kU.includes('FEMENINO_D') || kU.includes('FEMENINO D') || kU.endsWith('_D') || kU.endsWith(' D');
+      }
+      if (upperId.includes('FEMENINO_E') || upperId.includes('FEMENINO E') || upperId.endsWith('_E') || upperId === 'E') {
+        return kU.includes('FEMENINO_E') || kU.includes('FEMENINO E') || kU.endsWith('_E') || kU.endsWith(' E');
+      }
+      return false;
+    });
+    if (codeMatchKey && dbPlayersMap[codeMatchKey].length > 0) {
+      return dbPlayersMap[codeMatchKey];
+    }
+  }
+
+  // 5. Fallback to DEFAULT_SQUAD_MAP
+  if (DEFAULT_SQUAD_MAP[teamId]) {
+    return DEFAULT_SQUAD_MAP[teamId];
+  }
+  const upperId = teamId.toUpperCase();
+  const matchedDefaultKey = Object.keys(DEFAULT_SQUAD_MAP).find(k => 
+    k.toUpperCase() === upperId || 
+    k.toUpperCase().includes(upperId) || 
+    upperId.includes(k.toUpperCase())
+  );
+  if (matchedDefaultKey) {
+    return DEFAULT_SQUAD_MAP[matchedDefaultKey];
+  }
+
+  return DEFAULT_SQUAD_MAP['FEMENINO_A'] || [];
+};
+
+const getSquadPlayersForTeam = (
+  teamId?: string, 
+  seasonStr?: string, 
+  dbPlayersMap?: Record<string, DetailedSquadPlayer[]>,
+  teamsList?: Team[]
+): string[] => {
+  const detailed = getDetailedSquadPlayersForTeam(teamId, seasonStr, dbPlayersMap, teamsList);
   return detailed.map(p => p.name);
 };
 
@@ -147,15 +287,24 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
   const [displayMode, setDisplayMode] = useState<'list' | 'calendar'>('list');
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [filialTeamSearch, setFilialTeamSearch] = useState<string>('FEMENINO_B');
+  const [showFilialSelector, setShowFilialSelector] = useState<boolean>(false);
 
-  // Reset filial search when team changes to ensure valid selection
+  // Reset filial search when team changes to ensure valid selection of created teams (excluding main team)
   useEffect(() => {
     if (!selectedTeam) return;
-    if (selectedTeam.id === 'FEMENINO_A') setFilialTeamSearch('FEMENINO_B');
-    else if (selectedTeam.id === 'FEMENINO_B') setFilialTeamSearch('FEMENINO_C');
-    else if (selectedTeam.id === 'FEMENINO_C') setFilialTeamSearch('FEMENINO_D');
-    else if (selectedTeam.id === 'FEMENINO_D') setFilialTeamSearch('FEMENINO_E');
-  }, [selectedTeam?.id]);
+    const avail = (teams && teams.length > 0)
+      ? teams
+      : [
+          { id: 'FEMENINO_B', name: 'FEMENINO B' },
+          { id: 'FEMENINO_C', name: 'FEMENINO C' },
+          { id: 'FEMENINO_D', name: 'FEMENINO D' },
+          { id: 'FEMENINO_E', name: 'FEMENINO E' },
+        ];
+    const otherTeam = avail.find(t => t.id !== selectedTeam.id && t.name?.toUpperCase() !== selectedTeam.name?.toUpperCase());
+    if (otherTeam) {
+      setFilialTeamSearch(otherTeam.id);
+    }
+  }, [selectedTeam?.id, selectedTeam?.name, teams]);
   const [filialPlayerSearchQuery, setFilialPlayerSearchQuery] = useState('');
   const [sessions, setSessions] = useState<TrainingSession[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -163,6 +312,48 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
   const [selectedSessionModal, setSelectedSessionModal] = useState<TrainingSession | null>(null);
   const [selectedOfficialSheetSession, setSelectedOfficialSheetSession] = useState<TrainingSession | null>(null);
   const [sessionToDelete, setSessionToDelete] = useState<TrainingSession | null>(null);
+  const [isTipologiaModalOpen, setIsTipologiaModalOpen] = useState(false);
+  const [openMicrocycles, setOpenMicrocycles] = useState<Record<number, boolean>>({});
+
+  const isSessionInMicrocycle = (session: TrainingSession, mcNum: number): boolean => {
+    if (!session.microcycle) {
+      return mcNum === 1;
+    }
+    const raw = session.microcycle.toUpperCase().trim();
+    if (
+      raw === `MICROCICLO ${mcNum}` ||
+      raw === `MICROCICLO${mcNum}` ||
+      raw === `SEMANA ${mcNum}` ||
+      raw === `SEMANA${mcNum}` ||
+      raw === `MC ${mcNum}` ||
+      raw === `MC${mcNum}` ||
+      raw === `${mcNum}`
+    ) {
+      return true;
+    }
+    const match = raw.match(/\d+/);
+    if (match && parseInt(match[0], 10) === mcNum) {
+      return true;
+    }
+    return false;
+  };
+
+  const toggleMicrocycle = (mcNum: number, defaultOpen: boolean) => {
+    setOpenMicrocycles(prev => {
+      const currentState = prev[mcNum] !== undefined ? prev[mcNum] : defaultOpen;
+      return {
+        ...prev,
+        [mcNum]: !currentState
+      };
+    });
+  };
+
+  const isMicrocycleOpen = (mcNum: number, hasSessions: boolean) => {
+    if (openMicrocycles[mcNum] !== undefined) {
+      return openMicrocycles[mcNum];
+    }
+    return hasSessions || mcNum === 1;
+  };
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [activeTaskTab, setActiveTaskTab] = useState<number>(0);
@@ -211,10 +402,94 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
     sessionStaffTasks: []
   });
 
+  // State to store database players grouped by team_id
+  const [dbPlayersByTeam, setDbPlayersByTeam] = useState<Record<string, DetailedSquadPlayer[]>>({});
+
+  // Fetch players from Supabase for all teams
+  useEffect(() => {
+    async function fetchPlayersFromDb() {
+      if (!supabase) return;
+      try {
+        const { data, error } = await supabase
+          .from('players')
+          .select('*')
+          .order('number', { ascending: true });
+
+        if (!error && data && data.length > 0) {
+          const grouped: Record<string, DetailedSquadPlayer[]> = {};
+          data.forEach((p: any) => {
+            const tId = p.team_id || p.teamid || 'FEMENINO_A';
+            if (!grouped[tId]) grouped[tId] = [];
+
+            const rawName = p.name || `${p.nombre || ''} ${p.apellidos || ''}`.trim() || 'Jugadora';
+            const num = (p.number !== undefined && p.number !== null) ? p.number : p.dorsal;
+            const pos = p.position || p.demarcacion || p.positionCategory;
+            const cat = normalizeCategory(pos);
+
+            grouped[tId].push({
+              id: String(p.id),
+              name: rawName,
+              number: num,
+              positionCategory: cat,
+              image: p.image
+            });
+          });
+
+          setDbPlayersByTeam(grouped);
+        }
+      } catch (err) {
+        console.error('Error fetching players from Supabase in SessionsView:', err);
+      }
+    }
+
+    fetchPlayersFromDb();
+  }, []);
+
   // Current Squad Players for selected team (Detailed)
   const squadPlayers = React.useMemo(() => {
-    return getDetailedSquadPlayersForTeam(selectedTeam?.id, season);
-  }, [selectedTeam?.id, season]);
+    return getDetailedSquadPlayersForTeam(selectedTeam?.id, season, dbPlayersByTeam);
+  }, [selectedTeam?.id, season, dbPlayersByTeam]);
+
+  // Default all players in squadPlayers to 'disponible' when team or squadPlayers change
+  useEffect(() => {
+    if (squadPlayers.length > 0) {
+      setFormData(prev => {
+        const defaultStatuses: Record<string, 'disponible' | 'comodin' | 'no_disponible'> = {};
+        squadPlayers.forEach(p => {
+          defaultStatuses[p.id] = 'disponible';
+        });
+
+        // Merge with existing if any, but ensure all current squad players have at least 'disponible'
+        const existing = prev.playerStatuses || {};
+        const merged: Record<string, 'disponible' | 'comodin' | 'no_disponible'> = {};
+        
+        squadPlayers.forEach(p => {
+          merged[p.id] = existing[p.id] || 'disponible';
+        });
+
+        // Retain statuses of filial players
+        prev.filialPlayers.forEach(fId => {
+          if (existing[fId]) {
+            merged[fId] = existing[fId];
+          }
+        });
+
+        return {
+          ...prev,
+          playerStatuses: merged
+        };
+      });
+    }
+  }, [selectedTeam?.id, squadPlayers]);
+
+  // Default filial team search depending on selected main team
+  useEffect(() => {
+    const tId = selectedTeam?.id || '';
+    if (tId === 'FEMENINO_A') setFilialTeamSearch('FEMENINO_B');
+    else if (tId === 'FEMENINO_B') setFilialTeamSearch('FEMENINO_C');
+    else if (tId === 'FEMENINO_C') setFilialTeamSearch('FEMENINO_D');
+    else if (tId === 'FEMENINO_D') setFilialTeamSearch('FEMENINO_E');
+  }, [selectedTeam?.id]);
 
   // Current Staff Members for selected team
   const staffMembers = React.useMemo(() => {
@@ -363,8 +638,8 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
   };
 
   // Handle Create / Update Form Submit
-  const handleSubmitSession = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmitSession = (e?: React.FormEvent, closeAfterSave = false) => {
+    if (e) e.preventDefault();
     if (!selectedTeam) return;
 
     if (!formData.sessionNumber) {
@@ -388,12 +663,45 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
       id => statuses[id] === 'no_disponible'
     );
 
-    const numPlayers = wildcardPlayerIds.length > 0
-      ? `${availablePlayerIds.length}+${wildcardPlayerIds.length}`
-      : `${availablePlayerIds.length}`;
+    // Calculate goalkeeper IDs
+    const potentialFilialTeams = Array.from(new Set([
+      ...(teams || []).map(t => t.id),
+      'FEMENINO_A', 'FEMENINO_B', 'FEMENINO_C', 'FEMENINO_D', 'FEMENINO_E'
+    ]));
+    const allGKIds = new Set<string>();
+    squadPlayers.filter(p => p.positionCategory === 'PORTERAS').forEach(p => allGKIds.add(p.id));
+    const allFilialDetailed: DetailedSquadPlayer[] = [];
+    potentialFilialTeams.forEach(tId => {
+      allFilialDetailed.push(...getDetailedSquadPlayersForTeam(tId, season, dbPlayersByTeam, teams));
+    });
+    allFilialDetailed.filter(p => p.positionCategory === 'PORTERAS').forEach(p => allGKIds.add(p.id));
+
+    const fieldPlayerIds = allRelevantPlayerIds.filter(id => !allGKIds.has(id));
+    const gkPlayerIds = allRelevantPlayerIds.filter(id => allGKIds.has(id));
+
+    const availField = fieldPlayerIds.filter(id => (statuses[id] || 'disponible') === 'disponible').length;
+    const availGK = gkPlayerIds.filter(id => (statuses[id] || 'disponible') === 'disponible').length;
+    const wildField = fieldPlayerIds.filter(id => statuses[id] === 'comodin').length;
+    const wildGK = gkPlayerIds.filter(id => statuses[id] === 'comodin').length;
+
+    const cWildcard = wildField + wildGK;
+    const totalGKCount = availGK + wildGK;
+
+    let numPlayers = `${availField}`;
+    if (cWildcard > 0) {
+      numPlayers = totalGKCount > 0 
+        ? `${availField} + ${cWildcard}C + ${totalGKCount}`
+        : `${availField} + ${cWildcard}C`;
+    } else {
+      numPlayers = totalGKCount > 0 
+        ? `${availField} + ${totalGKCount}`
+        : `${availField}`;
+    }
+
+    const sessionTargetId = editingSessionId || `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     const newSession: TrainingSession = {
-      id: editingSessionId || `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: sessionTargetId,
       teamId: selectedTeam.id,
       season: seasonStr,
       title: `SESIÓN Nº${formData.sessionNumber}`,
@@ -420,18 +728,25 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
     };
 
     let updatedList: TrainingSession[] = [];
-    if (editingSessionId) {
-      updatedList = sessions.map(s => s.id === editingSessionId ? newSession : s);
-      setSuccessMessage('¡Sesión actualizada con éxito!');
+    const exists = sessions.some(s => s.id === sessionTargetId);
+    if (exists) {
+      updatedList = sessions.map(s => s.id === sessionTargetId ? newSession : s);
+      setSuccessMessage('¡Cambios aplicados con éxito!');
     } else {
       updatedList = [newSession, ...sessions];
-      setSuccessMessage('¡Sesión registrada correctamente para este equipo!');
+      setSuccessMessage('¡Sesión guardada! Puedes seguir completándola.');
     }
 
+    setSessions(updatedList);
     syncSessionToSupabase(updatedList, newSession);
-    setEditingSessionId(null);
-    resetForm();
-    setActiveTab('view');
+
+    if (closeAfterSave) {
+      setEditingSessionId(null);
+      resetForm();
+      setActiveTab('view');
+    } else {
+      setEditingSessionId(sessionTargetId);
+    }
 
     setTimeout(() => setSuccessMessage(null), 4000);
   };
@@ -643,9 +958,9 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
             )}
           </AnimatePresence>
 
-          {/* Sub-Navigation Tabs: Crear Sesión vs Ver Sesiones */}
-          <div className="flex items-center justify-between border-b border-slate-200 pb-1">
-            <div className="flex items-center gap-2">
+          {/* Sub-Navigation Tabs: Crear Sesión vs Ver Sesiones vs Tipología */}
+          <div className="flex items-center justify-between border-b border-slate-200 pb-1 flex-wrap gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <button
                 onClick={() => setActiveTab('view')}
                 className={cn(
@@ -676,6 +991,15 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
               >
                 <PlusCircle className="w-4 h-4" />
                 {editingSessionId ? 'Editando Sesión' : 'Crear Nueva Sesión'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsTipologiaModalOpen(true)}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer bg-slate-900 text-white hover:bg-slate-800 border border-slate-800 shadow-md hover:shadow-lg"
+              >
+                <BarChart3 className="w-4 h-4 text-sky-400" />
+                Tipología
               </button>
             </div>
 
@@ -717,143 +1041,164 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
               </div>
 
               {displayMode === 'list' ? (
-                <>
-                  {/* Sessions Grid */}
-                  {sessions.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                  {sessions.map((session) => (
-                    <motion.div
-                      key={session.id}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all overflow-hidden flex flex-col justify-between group"
-                    >
-                      <div className="p-5 space-y-3">
-                        {/* Session Top Badges */}
-                        <div className="flex items-center justify-between gap-2">
+                <div className="space-y-3">
+                  {/* ARCHIVADOR DE MICROCICLOS (MICROCICLO 1 AL MICROCICLO 40) */}
+                  {Array.from({ length: 40 }, (_, i) => i + 1).map((mcNum) => {
+                    const mcSessions = sessions.filter(session => isSessionInMicrocycle(session, mcNum));
+                    const isOpen = isMicrocycleOpen(mcNum, mcSessions.length > 0);
+
+                    return (
+                      <div
+                        key={mcNum}
+                        className="border border-slate-200 rounded-2xl overflow-hidden transition-all bg-white shadow-xs"
+                      >
+                        {/* CABECERA DEL MICROCICLO */}
+                        <button
+                          type="button"
+                          onClick={() => toggleMicrocycle(mcNum, mcSessions.length > 0)}
+                          className={`w-full p-4 flex items-center justify-between text-left transition-colors cursor-pointer ${
+                            isOpen
+                              ? 'bg-sky-50/80 border-b border-sky-100'
+                              : 'bg-slate-50/80 hover:bg-slate-100/80'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3.5">
+                            <div
+                              className={`p-2.5 rounded-xl transition-colors ${
+                                isOpen
+                                  ? 'bg-sky-500 text-white shadow-sm'
+                                  : mcSessions.length > 0
+                                  ? 'bg-sky-100 text-sky-700'
+                                  : 'bg-slate-200 text-slate-500'
+                              }`}
+                            >
+                              {isOpen ? (
+                                <FolderOpen className="w-5 h-5" />
+                              ) : (
+                                <Folder className="w-5 h-5" />
+                              )}
+                            </div>
+                            <div>
+                              <span className="text-xs font-black text-slate-900 tracking-wide block uppercase">
+                                MICROCICLO {mcNum}
+                              </span>
+                              <span className="text-[11px] text-slate-500 font-medium">
+                                {mcSessions.length} {mcSessions.length === 1 ? 'sesión adjunta' : 'sesiones adjuntas'}
+                              </span>
+                            </div>
+                          </div>
+
                           <div className="flex items-center gap-2">
-                            <span className="px-2.5 py-0.5 bg-slate-900 text-white font-black text-[10px] rounded-full uppercase">
-                              {session.dayType || 'MD-3'}
-                            </span>
-                            {session.microcycle && (
-                              <span className="text-[10px] font-bold text-sky-600 bg-sky-50 px-2 py-0.5 rounded border border-sky-100">
-                                {session.microcycle}
+                            {mcSessions.length > 0 && (
+                              <span className="px-2.5 py-1 bg-sky-100 text-sky-800 text-[10px] font-black rounded-lg border border-sky-200 uppercase tracking-wide">
+                                {mcSessions.length} {mcSessions.length === 1 ? 'Sesión' : 'Sesiones'}
                               </span>
                             )}
+                            {isOpen ? (
+                              <ChevronUp className="w-4 h-4 text-slate-500" />
+                            ) : (
+                              <ChevronDown className="w-4 h-4 text-slate-400" />
+                            )}
                           </div>
+                        </button>
 
-                          <span className={cn(
-                            "text-[10px] font-extrabold px-2 py-0.5 rounded-full uppercase flex items-center gap-1",
-                            session.intensity === 'Alta' || session.intensity === 'Muy Alta'
-                              ? "bg-rose-100 text-rose-700"
-                              : session.intensity === 'Media'
-                                ? "bg-amber-100 text-amber-700"
-                                : "bg-emerald-100 text-emerald-700"
-                          )}>
-                            <Flame className="w-3 h-3" />
-                            {session.intensity}
-                          </span>
-                        </div>
+                        {/* CONTENIDO DEL MICROCICLO */}
+                        <AnimatePresence initial={false}>
+                          {isOpen && (
+                            <motion.div
+                              initial={{ height: 0, opacity: 0 }}
+                              animate={{ height: 'auto', opacity: 1 }}
+                              exit={{ height: 0, opacity: 0 }}
+                              transition={{ duration: 0.2 }}
+                              className="overflow-hidden"
+                            >
+                              <div className="p-4 bg-slate-50/50 space-y-3 border-t border-slate-100">
+                                {mcSessions.length === 0 ? (
+                                  <div className="text-center py-5 bg-white/80 rounded-2xl border border-dashed border-slate-200 text-slate-400 space-y-1">
+                                    <p className="text-xs italic font-medium">No hay sesiones asociadas a este microciclo.</p>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        resetForm();
+                                        setFormData(p => ({ ...p, microcycle: `MICROCICLO ${mcNum}` }));
+                                        setActiveTab('create');
+                                      }}
+                                      className="inline-flex items-center gap-1.5 text-[11px] font-black text-sky-600 hover:text-sky-700 pt-1 cursor-pointer"
+                                    >
+                                      <PlusCircle className="w-3.5 h-3.5" />
+                                      Añadir Sesión al Microciclo {mcNum}
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                    {mcSessions.map((session) => (
+                                      <motion.div
+                                        key={session.id}
+                                        initial={{ opacity: 0, y: 10 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        className="bg-white rounded-2xl border border-slate-200 shadow-xs hover:shadow-md transition-all p-4 flex flex-col justify-between gap-3 group"
+                                      >
+                                        {/* Número de la Sesión */}
+                                        <div className="flex items-center justify-between">
+                                          <span className="px-3.5 py-1.5 bg-slate-900 text-white font-black text-xs sm:text-sm rounded-xl uppercase tracking-wider shadow-xs">
+                                            SESIÓN Nº {session.sessionNumber || '#'}
+                                          </span>
+                                        </div>
 
-                        {/* Title & Date */}
-                        <div>
-                          <h3 className="font-black text-slate-900 text-base group-hover:text-sky-600 transition-colors leading-snug">
-                            {session.title}
-                          </h3>
-                          <div className="flex items-center gap-3 text-slate-400 text-xs mt-1.5 font-semibold">
-                            <span className="flex items-center gap-1">
-                              <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                              {session.date}
-                            </span>
-                            <span>•</span>
-                            <span className="flex items-center gap-1">
-                              <Clock className="w-3.5 h-3.5 text-slate-400" />
-                              {session.durationTotalMin} min
-                            </span>
-                          </div>
-                        </div>
+                                        {/* Botones de Acción */}
+                                        <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
+                                          <div className="flex items-center gap-2 flex-wrap">
+                                            <button
+                                              onClick={() => setSelectedOfficialSheetSession(session)}
+                                              className="flex items-center gap-1.5 text-[11px] font-black bg-slate-900 text-white px-3 py-1.5 rounded-xl hover:bg-slate-800 transition-colors shadow-xs cursor-pointer"
+                                              title="Ver / Imprimir Ficha Oficial ATB"
+                                            >
+                                              <Printer className="w-3.5 h-3.5 text-sky-400" />
+                                              Ficha Oficial
+                                            </button>
 
-                        {/* Main Tactical Objective preview */}
-                        {session.objectivesTactical && (
-                          <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-xs text-slate-600 line-clamp-2">
-                            <strong className="text-slate-800">Obj. Táctico:</strong> {session.objectivesTactical}
-                          </div>
-                        )}
+                                            <button
+                                              onClick={() => setSelectedSessionModal(session)}
+                                              className="flex items-center gap-1.5 text-xs font-bold text-sky-600 hover:text-sky-700 bg-sky-50 hover:bg-sky-100 px-3 py-1.5 rounded-xl transition-colors cursor-pointer border border-sky-100"
+                                            >
+                                              <Eye className="w-3.5 h-3.5" />
+                                              Detalles
+                                            </button>
+                                          </div>
 
-                        {/* Tasks count & RPE */}
-                        <div className="flex items-center justify-between text-xs text-slate-500 pt-1 font-semibold">
-                          <span className="flex items-center gap-1.5">
-                            <Layers className="w-3.5 h-3.5 text-sky-500" />
-                            {session.tasks ? session.tasks.length : 0} Ejercicios
-                          </span>
-                        </div>
+                                          <div className="flex items-center gap-1">
+                                            <button
+                                              onClick={() => handleEditSession(session)}
+                                              className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                                              title="Editar Sesión"
+                                            >
+                                              <Edit3 className="w-4 h-4" />
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                setSessionToDelete(session);
+                                              }}
+                                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                                              title="Eliminar Sesión"
+                                            >
+                                              <Trash2 className="w-4 h-4" />
+                                            </button>
+                                          </div>
+                                        </div>
+                                      </motion.div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
                       </div>
-
-                      {/* Card Footer Actions */}
-                      <div className="bg-slate-50 px-4 py-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => setSelectedOfficialSheetSession(session)}
-                            className="flex items-center gap-1.5 text-[11px] font-black bg-slate-900 text-white px-3 py-1.5 rounded-xl hover:bg-slate-800 transition-colors shadow-xs cursor-pointer"
-                            title="Ver / Imprimir Ficha con plantilla oficial del club"
-                          >
-                            <Printer className="w-3.5 h-3.5 text-sky-400" />
-                            Ficha Oficial ATB
-                          </button>
-
-                          <button
-                            onClick={() => setSelectedSessionModal(session)}
-                            className="flex items-center gap-1.5 text-xs font-bold text-sky-600 hover:text-sky-700 transition-colors cursor-pointer"
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                            Detalles
-                          </button>
-                        </div>
-
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={() => handleEditSession(session)}
-                            className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 rounded-lg transition-colors cursor-pointer"
-                            title="Editar Sesión"
-                          >
-                            <Edit3 className="w-4 h-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSessionToDelete(session);
-                            }}
-                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                            title="Eliminar Sesión"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-                    </motion.div>
-                  ))}
+                    );
+                  })}
                 </div>
-              ) : (
-                <div className="bg-white rounded-2xl p-12 text-center border border-dashed border-slate-300 shadow-xs space-y-3">
-                  <ClipboardList className="w-12 h-12 text-slate-300 mx-auto" />
-                  <h3 className="text-base font-black text-slate-800">No hay sesiones registradas</h3>
-                  <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                    Todavía no se ha diseñado ninguna sesión de entrenamiento para la plantilla <strong className="text-slate-900">{selectedTeam.name}</strong>.
-                  </p>
-                  <button
-                    onClick={() => {
-                      resetForm();
-                      setActiveTab('create');
-                    }}
-                    className="inline-flex items-center gap-2 px-5 py-2.5 bg-sky-500 text-white font-black text-xs rounded-xl shadow-md hover:bg-sky-600 transition-all cursor-pointer"
-                  >
-                    <PlusCircle className="w-4 h-4" />
-                    Crear Primera Sesión
-                  </button>
-                </div>
-                  )}
-                </>
               ) : (
                 /* Calendar View */
                 <div className="space-y-6">
@@ -951,7 +1296,7 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
 
           {/* TAB 2: CREAR / EDITAR SESIÓN */}
           {activeTab === 'create' && (
-            <form onSubmit={handleSubmitSession} className="space-y-6">
+            <form onSubmit={(e) => handleSubmitSession(e, false)} className="space-y-6">
               {/* Form Title Header */}
               <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
                 <div>
@@ -1006,12 +1351,15 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
 
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">Microciclo</label>
-                    <input
-                      type="text"
+                    <select
                       value={formData.microcycle}
                       onChange={e => setFormData(p => ({ ...p, microcycle: e.target.value }))}
-                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:ring-2 focus:ring-sky-500 outline-none"
-                    />
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:ring-2 focus:ring-sky-500 outline-none cursor-pointer"
+                    >
+                      {Array.from({ length: 40 }, (_, i) => `MICROCICLO ${i + 1}`).map((mc) => (
+                        <option key={mc} value={mc}>{mc}</option>
+                      ))}
+                    </select>
                   </div>
 
                   <div>
@@ -1048,55 +1396,11 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
 
               {/* Section 2: Disponibilidad de Jugadoras de la Plantilla */}
               <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3">
-                  <div>
-                    <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest flex items-center gap-2">
-                      <Users className="w-4 h-4 text-sky-500" />
-                      2. Disponibilidad de Jugadoras de la Plantilla
-                    </h3>
-                  </div>
-
-                  {/* Batch Actions */}
-                  <div className="flex items-center gap-1.5 self-start sm:self-auto flex-wrap">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const allDisp: Record<string, 'disponible'> = {};
-                        squadPlayers.forEach(p => { allDisp[p.id] = 'disponible'; });
-                        setFormData(prev => ({ ...prev, playerStatuses: allDisp }));
-                      }}
-                      className="px-2.5 py-1 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-300 rounded-lg text-[10px] font-black transition-colors cursor-pointer flex items-center gap-1"
-                    >
-                      <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                      Todas Disponibles
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const allCom: Record<string, 'comodin'> = {};
-                        squadPlayers.forEach(p => { allCom[p.id] = 'comodin'; });
-                        setFormData(prev => ({ ...prev, playerStatuses: allCom }));
-                      }}
-                      className="px-2.5 py-1 bg-amber-50 text-amber-900 hover:bg-amber-100 border border-amber-300 rounded-lg text-[10px] font-black transition-colors cursor-pointer flex items-center gap-1"
-                    >
-                      <span className="w-2 h-2 rounded-full bg-amber-400"></span>
-                      Todas Comodines
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const allNo: Record<string, 'no_disponible'> = {};
-                        squadPlayers.forEach(p => { allNo[p.id] = 'no_disponible'; });
-                        setFormData(prev => ({ ...prev, playerStatuses: allNo }));
-                      }}
-                      className="px-2.5 py-1 bg-red-50 text-red-800 hover:bg-red-100 border border-red-300 rounded-lg text-[10px] font-black transition-colors cursor-pointer flex items-center gap-1"
-                    >
-                      <span className="w-2 h-2 rounded-full bg-red-500"></span>
-                      Todas No Disponibles
-                    </button>
-                  </div>
+                <div className="border-b pb-3">
+                  <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest flex items-center gap-2">
+                    <Users className="w-4 h-4 text-sky-500" />
+                    2. Disponibilidad de Jugadoras de la Plantilla
+                  </h3>
                 </div>
 
                 {/* Counters Bar */}
@@ -1104,7 +1408,10 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                   const currentStatuses = formData.playerStatuses || {};
                   
                   // Collect IDs of players who are goalkeepers
-                  const potentialFilialTeams = ['FEMENINO_B', 'FEMENINO_C', 'FEMENINO_D', 'FEMENINO_E'];
+                  const potentialFilialTeams = Array.from(new Set([
+                    ...(teams || []).map(t => t.id),
+                    'FEMENINO_A', 'FEMENINO_B', 'FEMENINO_C', 'FEMENINO_D', 'FEMENINO_E'
+                  ]));
                   const allGKIds = new Set<string>();
                   
                   // Goalkeepers from main team
@@ -1113,7 +1420,7 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                   // We also need the IDs of filial players who are goalkeepers
                   const allFilialDetailed: DetailedSquadPlayer[] = [];
                   potentialFilialTeams.forEach(tId => {
-                    allFilialDetailed.push(...getDetailedSquadPlayersForTeam(tId, season));
+                    allFilialDetailed.push(...getDetailedSquadPlayersForTeam(tId, season, dbPlayersByTeam, teams));
                   });
                   allFilialDetailed.filter(p => p.positionCategory === 'PORTERAS').forEach(p => allGKIds.add(p.id));
                   
@@ -1135,13 +1442,18 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                   const cWildcard = wildField + wildGK;
                   const cUnavailable = unavailField + unavailGK;
 
-                  // Format total string as "FieldPlayers + Goalkeepers"
-                  const totalFieldCount = availField + wildField;
+                  // Format total string: e.g. "17 + 2C + 2" or "17 + 2"
                   const totalGKCount = availGK + wildGK;
 
-                  let totalStr = `${totalFieldCount}`;
-                  if (totalGKCount > 0) {
-                    totalStr = `${totalFieldCount} + ${totalGKCount}`;
+                  let totalStr = `${availField}`;
+                  if (cWildcard > 0) {
+                    totalStr = totalGKCount > 0 
+                      ? `${availField} + ${cWildcard}C + ${totalGKCount}`
+                      : `${availField} + ${cWildcard}C`;
+                  } else {
+                    totalStr = totalGKCount > 0 
+                      ? `${availField} + ${totalGKCount}`
+                      : `${availField}`;
                   }
 
                   return (
@@ -1170,10 +1482,13 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
 
                 {/* Interactive Player Grid Grouped by Position Categories */}
                 {(() => {
-                  const potentialFilialTeams = ['FEMENINO_B', 'FEMENINO_C', 'FEMENINO_D', 'FEMENINO_E'];
+                  const potentialFilialTeams = Array.from(new Set([
+                    ...(teams || []).map(t => t.id),
+                    'FEMENINO_A', 'FEMENINO_B', 'FEMENINO_C', 'FEMENINO_D', 'FEMENINO_E'
+                  ]));
                   const allPossiblePlayers: DetailedSquadPlayer[] = [];
                   potentialFilialTeams.forEach(tId => {
-                    allPossiblePlayers.push(...getDetailedSquadPlayersForTeam(tId, season));
+                    allPossiblePlayers.push(...getDetailedSquadPlayersForTeam(tId, season, dbPlayersByTeam, teams));
                   });
 
                   const filialDetailed = formData.filialPlayers.map(id => {
@@ -1301,89 +1616,117 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
 
                 {/* FILIAL PLAYERS SECTION */}
                 <div className="space-y-4 pt-4 border-t border-slate-100">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <h4 className="text-[11px] font-black uppercase text-sky-600 tracking-[0.2em] flex items-center gap-2">
-                      <PlusCircle className="w-4 h-4" />
-                      Añadir Jugadoras de Filial
-                    </h4>
-
-                    <div className="flex items-center gap-2">
-                      <select 
-                        value={filialTeamSearch}
-                        onChange={(e) => setFilialTeamSearch(e.target.value)}
-                        className="px-3 py-1.5 bg-slate-100 border border-slate-200 rounded-lg text-[10px] font-black uppercase outline-none focus:ring-2 focus:ring-sky-500"
-                      >
-                        {(() => {
-                          const options = [];
-                          const teamId = selectedTeam?.id || '';
-                          
-                          if (teamId === 'FEMENINO_A') {
-                            options.push({ id: 'FEMENINO_B', label: 'Plantilla B' });
-                            options.push({ id: 'FEMENINO_C', label: 'Plantilla C' });
-                            options.push({ id: 'FEMENINO_D', label: 'Plantilla D' });
-                            options.push({ id: 'FEMENINO_E', label: 'Plantilla E' });
-                          } else if (teamId === 'FEMENINO_B') {
-                            options.push({ id: 'FEMENINO_C', label: 'Plantilla C' });
-                            options.push({ id: 'FEMENINO_D', label: 'Plantilla D' });
-                            options.push({ id: 'FEMENINO_E', label: 'Plantilla E' });
-                          } else if (teamId === 'FEMENINO_C') {
-                            options.push({ id: 'FEMENINO_D', label: 'Plantilla D' });
-                            options.push({ id: 'FEMENINO_E', label: 'Plantilla E' });
-                          } else if (teamId === 'FEMENINO_D') {
-                            options.push({ id: 'FEMENINO_E', label: 'Plantilla E' });
-                          }
-                          
-                          return options.map(opt => (
-                            <option key={opt.id} value={opt.id}>{opt.label}</option>
-                          ));
-                        })()}
-                      </select>
-                      <div className="relative">
-                        <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                        <input 
-                          type="text"
-                          placeholder="Buscar jugadora..."
-                          value={filialPlayerSearchQuery}
-                          onChange={(e) => setFilialPlayerSearchQuery(e.target.value)}
-                          className="pl-9 pr-4 py-1.5 bg-slate-100 border border-slate-200 rounded-lg text-[10px] font-black uppercase outline-none focus:ring-2 focus:ring-sky-500 w-48"
-                        />
+                  <div className="flex items-center justify-between gap-4">
+                    <button
+                      type="button"
+                      onClick={() => setShowFilialSelector(prev => !prev)}
+                      className="text-[11px] font-black uppercase text-sky-600 hover:text-sky-700 tracking-[0.2em] flex items-center gap-2 transition-colors cursor-pointer group"
+                    >
+                      <div className="p-1 rounded-lg bg-sky-50 group-hover:bg-sky-100 text-sky-600 transition-colors border border-sky-200 flex items-center justify-center">
+                        {showFilialSelector ? <ChevronUp className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
                       </div>
-                    </div>
+                      <span>Añadir Jugadoras de Filial</span>
+                      <ChevronDown className={cn("w-3.5 h-3.5 transition-transform duration-200 text-sky-500", showFilialSelector && "rotate-180")} />
+                    </button>
                   </div>
 
-                  {/* Search Results */}
-                  {filialPlayerSearchQuery.length > 0 && (
-                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 max-h-48 overflow-y-auto grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-                      {(() => {
-                        const otherPlayers = getDetailedSquadPlayersForTeam(filialTeamSearch, season);
-                        const filtered = otherPlayers.filter(p => 
-                          p.name.toUpperCase().includes(filialPlayerSearchQuery.toUpperCase()) &&
-                          !formData.filialPlayers.includes(p.id)
-                        );
-                        
-                        if (filtered.length === 0) return <p className="col-span-full text-center py-4 text-[10px] font-bold text-slate-400 uppercase">No se encontraron jugadoras</p>;
-                        
-                        return filtered.map(p => (
-                          <button
-                            key={p.id}
-                            type="button"
-                            onClick={() => {
-                              setFormData(prev => ({
-                                ...prev,
-                                filialPlayers: [...prev.filialPlayers, p.id],
-                                playerStatuses: { ...prev.playerStatuses, [p.id]: 'disponible' }
-                              }));
-                              setFilialPlayerSearchQuery('');
-                            }}
-                            className="flex items-center gap-2 p-2 bg-white border border-slate-200 rounded-lg hover:bg-sky-50 hover:border-sky-200 transition-all text-left"
+                  {/* Collapsible Filial Dropdown Selector */}
+                  {showFilialSelector && (
+                    <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-4 shadow-sm animate-in fade-in slide-in-from-top-2 duration-200">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200/80">
+                        <span className="text-[10px] font-black uppercase text-slate-500 tracking-wider">
+                          Seleccionar plantilla filial:
+                        </span>
+                        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+                          <select 
+                            value={filialTeamSearch}
+                            onChange={(e) => setFilialTeamSearch(e.target.value)}
+                            className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-[10px] font-black uppercase outline-none focus:ring-2 focus:ring-sky-500 shadow-xs"
                           >
-                            <div className="w-6 h-6 bg-sky-100 rounded-full flex items-center justify-center text-[8px] font-black text-sky-700">
-                              {p.number || p.name.charAt(0)}
-                            </div>
-                            <span className="text-[10px] font-black text-slate-700 uppercase truncate">{p.name}</span>
-                          </button>
-                        ));
-                      })()}
+                            {(() => {
+                              const currentTeamId = selectedTeam?.id;
+                              const currentTeamName = selectedTeam?.name?.toUpperCase();
+
+                              const allTeams = (teams && teams.length > 0)
+                                ? teams
+                                : [
+                                    { id: 'FEMENINO_B', name: 'FEMENINO B' },
+                                    { id: 'FEMENINO_C', name: 'FEMENINO C' },
+                                    { id: 'FEMENINO_D', name: 'FEMENINO D' },
+                                    { id: 'FEMENINO_E', name: 'FEMENINO E' },
+                                    { id: 'FEMENINO_A', name: 'FEMENINO A' },
+                                  ];
+
+                              const filteredTeams = allTeams.filter(t => {
+                                if (currentTeamId && t.id === currentTeamId) return false;
+                                if (currentTeamName && t.name?.toUpperCase() === currentTeamName) return false;
+                                return true;
+                              });
+
+                              return filteredTeams.map(t => (
+                                <option key={t.id} value={t.id}>
+                                  {t.name}
+                                </option>
+                              ));
+                            })()}
+                          </select>
+                          <div className="relative">
+                            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                            <input 
+                              type="text"
+                              placeholder="Buscar jugadora..."
+                              value={filialPlayerSearchQuery}
+                              onChange={(e) => setFilialPlayerSearchQuery(e.target.value)}
+                              className="pl-9 pr-4 py-1.5 bg-white border border-slate-300 rounded-lg text-[10px] font-black uppercase outline-none focus:ring-2 focus:ring-sky-500 w-48 shadow-xs"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Filial Players Selector Grid */}
+                      <div className="space-y-2">
+                        <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">
+                          Jugadoras disponibles (Haz clic para añadir):
+                        </span>
+                        <div className="bg-white border border-slate-200 rounded-xl p-3 max-h-56 overflow-y-auto grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                          {(() => {
+                            const otherPlayers = getDetailedSquadPlayersForTeam(filialTeamSearch, season, dbPlayersByTeam, teams);
+                            const filtered = otherPlayers.filter(p => 
+                              p.name.toUpperCase().includes(filialPlayerSearchQuery.toUpperCase()) &&
+                              !formData.filialPlayers.includes(p.id)
+                            );
+                            
+                            if (filtered.length === 0) {
+                              return (
+                                <p className="col-span-full text-center py-4 text-[10px] font-bold text-slate-400 uppercase">
+                                  {filialPlayerSearchQuery ? 'No se encontraron jugadoras' : 'Todas las jugadoras de esta plantilla han sido añadidas'}
+                                </p>
+                              );
+                            }
+                            
+                            return filtered.map(p => (
+                              <button
+                                key={p.id}
+                                type="button"
+                                onClick={() => {
+                                  setFormData(prev => ({
+                                    ...prev,
+                                    filialPlayers: [...prev.filialPlayers, p.id],
+                                    playerStatuses: { ...prev.playerStatuses, [p.id]: 'disponible' }
+                                  }));
+                                }}
+                                className="flex items-center gap-2 p-2 bg-slate-50 border border-slate-200 rounded-lg hover:bg-sky-50 hover:border-sky-300 transition-all text-left group cursor-pointer shadow-xs hover:shadow-sm"
+                              >
+                                <div className="w-6 h-6 bg-sky-100 group-hover:bg-sky-500 group-hover:text-white rounded-full flex items-center justify-center text-[8px] font-black text-sky-700 transition-colors">
+                                  {p.number || p.name.charAt(0)}
+                                </div>
+                                <span className="text-[10px] font-black text-slate-700 group-hover:text-sky-900 uppercase truncate">{p.name}</span>
+                                <PlusCircle className="w-3.5 h-3.5 text-slate-300 group-hover:text-sky-500 ml-auto shrink-0" />
+                              </button>
+                            ));
+                          })()}
+                        </div>
+                      </div>
                     </div>
                   )}
 
@@ -1394,10 +1737,13 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                         const status = (formData.playerStatuses || {})[playerId] || 'disponible';
                         
                         // Find the player object to get the name
-                        const potentialFilialTeams = ['FEMENINO_B', 'FEMENINO_C', 'FEMENINO_D', 'FEMENINO_E'];
+                        const potentialFilialTeams = Array.from(new Set([
+                          ...(teams || []).map(t => t.id),
+                          'FEMENINO_A', 'FEMENINO_B', 'FEMENINO_C', 'FEMENINO_D', 'FEMENINO_E'
+                        ]));
                         let playerObj = null;
                         for (const tId of potentialFilialTeams) {
-                          const list = getDetailedSquadPlayersForTeam(tId, season);
+                          const list = getDetailedSquadPlayersForTeam(tId, season, dbPlayersByTeam, teams);
                           const found = list.find(p => p.id === playerId);
                           if (found) {
                             playerObj = found;
@@ -1564,6 +1910,7 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                           }}
                           className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:ring-2 focus:ring-sky-500 outline-none"
                         >
+                          <option value="-">(-)</option>
                           <option value="MCB">MCB</option>
                           <option value="MSB">MSB</option>
                           <option value="MIXTO">MIXTO</option>
@@ -1581,6 +1928,7 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                           className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:ring-2 focus:ring-sky-500 outline-none"
                         >
                           <option value="LÚDICO">LÚDICO</option>
+                          <option value="CONDICIONAL">CONDICIONAL</option>
                           <option value="RONDOS">RONDOS</option>
                           <option value="EVOLUCIONES">EVOLUCIONES</option>
                           <option value="RUEDAS DE PASE">RUEDAS DE PASE</option>
@@ -1612,31 +1960,41 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                   <div className="md:col-span-5 flex flex-col h-full pt-5">
                     <div className="flex-1 min-h-[300px]">
                       {formData.tasks[activeTaskTab]?.image ? (
-                        <div className="relative w-full h-full bg-slate-100 rounded-2xl overflow-hidden border border-slate-200 group shadow-md transition-shadow hover:shadow-lg">
+                        <div className="relative w-full h-full min-h-[280px] bg-slate-900/5 rounded-2xl overflow-hidden border border-slate-200 group shadow-md transition-shadow hover:shadow-lg flex items-center justify-center p-2">
                           <img 
                             src={formData.tasks[activeTaskTab]?.image} 
                             alt="Preview" 
-                            className="w-full h-full object-cover cursor-pointer"
+                            className="max-w-full max-h-[320px] w-auto h-auto object-contain rounded-lg"
                             referrerPolicy="no-referrer"
-                            onClick={() => {
-                              setImageToEdit(formData.tasks[activeTaskTab].image || null);
-                              setIsEditorOpen(true);
-                            }}
                           />
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const newTasks = [...formData.tasks];
-                              newTasks[activeTaskTab] = { ...newTasks[activeTaskTab], image: undefined };
-                              setFormData(p => ({ ...p, tasks: newTasks }));
-                            }}
-                            className="absolute top-4 right-4 p-3 bg-rose-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-2xl hover:bg-rose-600"
-                          >
-                            <X className="w-6 h-6" />
-                          </button>
+                          <div className="absolute top-3 right-3 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900/40 p-1.5 rounded-xl backdrop-blur-xs">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setImageToEdit(formData.tasks[activeTaskTab].image || null);
+                                setIsEditorOpen(true);
+                              }}
+                              title="Ajustar / Recortar"
+                              className="p-2 bg-white text-slate-700 hover:text-sky-600 rounded-lg shadow-sm transition-colors cursor-pointer"
+                            >
+                              <Crop className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const newTasks = [...formData.tasks];
+                                newTasks[activeTaskTab] = { ...newTasks[activeTaskTab], image: undefined };
+                                setFormData(p => ({ ...p, tasks: newTasks }));
+                              }}
+                              title="Eliminar imagen"
+                              className="p-2 bg-rose-500 text-white hover:bg-rose-600 rounded-lg shadow-sm transition-colors cursor-pointer"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
                         </div>
                       ) : (
-                        <label className="w-full h-full flex flex-col items-center justify-center border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50 hover:bg-slate-100 hover:border-sky-300 transition-all cursor-pointer group">
+                        <label className="w-full h-full min-h-[280px] flex flex-col items-center justify-center border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50 hover:bg-slate-100 hover:border-sky-300 transition-all cursor-pointer group">
                           <div className="p-8 rounded-full bg-white shadow-sm border border-slate-100 group-hover:scale-110 transition-transform mb-4">
                             <ImagePlus className="w-16 h-16 text-slate-300 group-hover:text-sky-400 transition-colors" />
                           </div>
@@ -1651,8 +2009,9 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                                 const reader = new FileReader();
                                 reader.onloadend = () => {
                                   const result = reader.result as string;
-                                  setImageToEdit(result);
-                                  setIsEditorOpen(true);
+                                  const newTasks = [...formData.tasks];
+                                  newTasks[activeTaskTab] = { ...newTasks[activeTaskTab], image: result };
+                                  setFormData(p => ({ ...p, tasks: newTasks }));
                                 };
                                 reader.readAsDataURL(file);
                               }
@@ -1801,7 +2160,7 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
               </div>
 
               {/* Form Buttons */}
-              <div className="flex items-center justify-end gap-3 pt-2">
+              <div className="flex flex-wrap items-center justify-end gap-3 pt-2">
                 <button
                   type="button"
                   onClick={() => {
@@ -1819,7 +2178,16 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                   className="px-6 py-2.5 bg-sky-500 text-white font-black text-xs rounded-xl shadow-md hover:bg-sky-600 transition-all flex items-center gap-2 cursor-pointer"
                 >
                   <Check className="w-4 h-4" />
-                  {editingSessionId ? 'Guardar Cambios' : 'Guardar Sesión de Entrenamiento'}
+                  {editingSessionId ? 'Aplicar Cambios' : 'Guardar y Seguir Editando'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={(e) => handleSubmitSession(e, true)}
+                  className="px-6 py-2.5 bg-emerald-600 text-white font-black text-xs rounded-xl shadow-md hover:bg-emerald-700 transition-all flex items-center gap-2 cursor-pointer"
+                >
+                  <Check className="w-4 h-4" />
+                  Guardar y Salir
                 </button>
               </div>
             </form>
@@ -2014,14 +2382,13 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                           {/* Right Side: Large Image Preview */}
                           <div className="md:col-span-5">
                             {t.image ? (
-                              <div className="relative aspect-video w-full bg-slate-200 rounded-2xl overflow-hidden border border-slate-300 shadow-inner">
+                              <div className="relative aspect-video w-full bg-slate-900/5 rounded-2xl overflow-hidden border border-slate-200 shadow-inner flex items-center justify-center p-2">
                                 <img 
                                   src={t.image} 
                                   alt={t.title} 
-                                  className="w-full h-full object-cover"
+                                  className="max-w-full max-h-full w-auto h-auto object-contain rounded-lg"
                                   referrerPolicy="no-referrer"
                                 />
-                                <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent pointer-events-none" />
                               </div>
                             ) : (
                               <div className="aspect-video w-full bg-slate-100 rounded-2xl border border-dashed border-slate-200 flex flex-col items-center justify-center text-slate-400">
@@ -2061,11 +2428,15 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                   </button>
 
                   <button
-                    onClick={() => window.print()}
-                    className="px-4 py-2 bg-slate-200 text-slate-800 hover:bg-slate-300 font-bold text-xs rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
+                    onClick={() => {
+                      const sess = selectedSessionModal;
+                      setSelectedSessionModal(null);
+                      setSelectedOfficialSheetSession(sess);
+                    }}
+                    className="px-4 py-2 bg-sky-500 hover:bg-sky-600 text-white font-black text-xs rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
                   >
-                    <Printer className="w-4 h-4" />
-                    Imprimir Vista Simple
+                    <Download className="w-4 h-4" />
+                    PDF Ficha Técnica
                   </button>
                 </div>
 
@@ -2150,6 +2521,14 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
           </div>
         )}
       </AnimatePresence>
+
+      {/* MODAL ANALÍTICO DE TIPOLOGÍA Y FOCO */}
+      <TipologiaModal
+        isOpen={isTipologiaModalOpen}
+        onClose={() => setIsTipologiaModalOpen(false)}
+        sessions={sessions}
+        teamName={selectedTeam?.name || 'Plantilla'}
+      />
     </div>
   );
 }

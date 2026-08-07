@@ -79,8 +79,8 @@ export interface ExerciseTask {
   materials?: string;
   coach?: string; // e.g. MIKY, JUANMI, NICA, IAGO
   codeName?: string; // e.g. SRJ EG 3x3+2, SMJ JUEGO PROGRESION 5X5+6, SGJ EM ATAQUE-DEFENSA
-  foco?: 'MCB' | 'MSB' | 'MIXTO';
-  tipologia?: 'LÚDICO' | 'RONDOS' | 'EVOLUCIONES' | 'RUEDAS DE PASE' | 'MANTENIMIENTO' | 'JUEGO DE POSICIÓN' | 'JUEGO DE PROGRESIÓN' | 'PARTIDO CONDICIONADO' | 'REDUCIDOS';
+  foco?: '-' | 'MCB' | 'MSB' | 'MIXTO' | string;
+  tipologia?: 'LÚDICO' | 'CONDICIONAL' | 'RONDOS' | 'EVOLUCIONES' | 'RUEDAS DE PASE' | 'MANTENIMIENTO' | 'JUEGO DE POSICIÓN' | 'JUEGO DE PROGRESIÓN' | 'PARTIDO CONDICIONADO' | 'REDUCIDOS' | string;
   comoParaQue?: string;
   diagramPreset?: 'rondo' | 'posicion' | 'partido' | 'ataque_defensa';
   image?: string;

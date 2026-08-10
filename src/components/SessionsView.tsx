@@ -270,6 +270,18 @@ const COMMON_MATERIALS = [
   'Vallas bajas', 'Vallas altas', 'Muñecos barrera', 'Chinos / Setas'
 ];
 
+const FASE_OPTIONS = ['ATACAR', 'DEFENDER', 'TRANSICIÓN DEFENSA-ATAQUE', 'TRANSICIÓN ATAQUE-DEFENSA', '-'];
+const CONTEXTO_OPTIONS = [
+  'INICIO-REINICIO', 
+  'GESTIÓN DE BALÓN + PROGRESIÓN', 
+  'GESTIÓN DE LA RECUPERCIÓN', 
+  'ATAQUE DEL ÁREA (CORRIENDO/ESTÁTICA)', 
+  'PRESS ANTE INICIOS Y REINICIOS', 
+  'DEFENSA DE LA PROGRESIÓN (BLOQUE)', 
+  'GESTIÓN DE LA PERDIDA', 
+  'DEFENSA DE ÁREA (CORRIENDO/ESTÁTICA)'
+];
+
 const PHASE_OPTIONS: ExerciseTask['phase'][] = [
   'Calentamiento',
   'Tarea 1',
@@ -393,10 +405,10 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
     selectedMaterials: ['Conos', 'Petos (2 colores)', 'Balones Oficiales'],
     notes: '',
     tasks: [
-      { id: 't1', title: '', phase: 'Calentamiento', durationMin: 15, description: '', coach: '', foco: 'MIXTO', tipologia: 'LÚDICO' },
-      { id: 't2', title: '', phase: 'Tarea 1', durationMin: 20, description: '', coach: '', foco: 'MIXTO', tipologia: 'RONDOS' },
-      { id: 't3', title: '', phase: 'Tarea 2', durationMin: 20, description: '', coach: '', foco: 'MIXTO', tipologia: 'JUEGO DE POSICIÓN' },
-      { id: 't4', title: '', phase: 'Tarea 3', durationMin: 20, description: '', coach: '', foco: 'MIXTO', tipologia: 'PARTIDO CONDICIONADO' }
+      { id: 't1', title: '', phase: 'Calentamiento', durationMin: 15, description: '', coach: '', foco: 'MIXTO', tipologia: 'LÚDICO', fases: [], contextos: [] },
+      { id: 't2', title: '', phase: 'Tarea 1', durationMin: 20, description: '', coach: '', foco: 'MIXTO', tipologia: 'RONDOS', fases: [], contextos: [] },
+      { id: 't3', title: '', phase: 'Tarea 2', durationMin: 20, description: '', coach: '', foco: 'MIXTO', tipologia: 'JUEGO DE POSICIÓN', fases: [], contextos: [] },
+      { id: 't4', title: '', phase: 'Tarea 3', durationMin: 20, description: '', coach: '', foco: 'MIXTO', tipologia: 'PARTIDO CONDICIONADO', fases: [], contextos: [] }
     ],
     filialPlayers: [],
     sessionStaffTasks: []
@@ -1938,6 +1950,76 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                           <option value="PARTIDO CONDICIONADO">PARTIDO CONDICIONADO</option>
                           <option value="REDUCIDOS">REDUCIDOS</option>
                         </select>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-2 uppercase tracking-tight">Fase (Selección Múltiple)</label>
+                        <div className="flex flex-wrap gap-2">
+                          {FASE_OPTIONS.map(opt => {
+                            const currentFases = formData.tasks[activeTaskTab]?.fases || [];
+                            const isSelected = currentFases.includes(opt);
+                            return (
+                              <button
+                                type="button"
+                                key={opt}
+                                onClick={() => {
+                                  const newTasks = [...formData.tasks];
+                                  const task = { ...newTasks[activeTaskTab] };
+                                  const updatedFases = isSelected
+                                    ? currentFases.filter(f => f !== opt)
+                                    : [...currentFases, opt];
+                                  task.fases = updatedFases;
+                                  newTasks[activeTaskTab] = task;
+                                  setFormData(p => ({ ...p, tasks: newTasks }));
+                                }}
+                                className={cn(
+                                  "px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all border",
+                                  isSelected
+                                    ? "bg-sky-500 text-white border-sky-600 shadow-sm"
+                                    : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+                                )}
+                              >
+                                {opt}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-2 uppercase tracking-tight">Contexto (Selección Múltiple)</label>
+                        <div className="flex flex-wrap gap-2">
+                          {CONTEXTO_OPTIONS.map(opt => {
+                            const currentContextos = formData.tasks[activeTaskTab]?.contextos || [];
+                            const isSelected = currentContextos.includes(opt);
+                            return (
+                              <button
+                                type="button"
+                                key={opt}
+                                onClick={() => {
+                                  const newTasks = [...formData.tasks];
+                                  const task = { ...newTasks[activeTaskTab] };
+                                  const updatedContextos = isSelected
+                                    ? currentContextos.filter(c => c !== opt)
+                                    : [...currentContextos, opt];
+                                  task.contextos = updatedContextos;
+                                  newTasks[activeTaskTab] = task;
+                                  setFormData(p => ({ ...p, tasks: newTasks }));
+                                }}
+                                className={cn(
+                                  "px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all border text-left",
+                                  isSelected
+                                    ? "bg-emerald-500 text-white border-emerald-600 shadow-sm"
+                                    : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+                                )}
+                              >
+                                {opt}
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
                     </div>
 

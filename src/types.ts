@@ -82,6 +82,8 @@ export interface ExerciseTask {
   foco?: '-' | 'MCB' | 'MSB' | 'MIXTO' | string;
   tipologia?: 'LÚDICO' | 'CONDICIONAL' | 'RONDOS' | 'EVOLUCIONES' | 'RUEDAS DE PASE' | 'MANTENIMIENTO' | 'JUEGO DE POSICIÓN' | 'JUEGO DE PROGRESIÓN' | 'PARTIDO CONDICIONADO' | 'REDUCIDOS' | string;
   comoParaQue?: string;
+  fases?: string[];
+  contextos?: string[];
   diagramPreset?: 'rondo' | 'posicion' | 'partido' | 'ataque_defensa';
   image?: string;
 }

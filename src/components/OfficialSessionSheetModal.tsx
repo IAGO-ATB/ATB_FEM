@@ -700,6 +700,16 @@ export default function OfficialSessionSheetModal({ session, team, season, onClo
                               <p className="font-medium text-slate-800 leading-tight whitespace-pre-wrap">
                                 {task?.description || 'Calentamiento coordinativo y activatorio en espacio delimitado.'}
                               </p>
+                              {(task?.fases?.length > 0 || task?.contextos?.length > 0) && (
+                                <div className="mt-1 space-y-0.5 border-t border-slate-200 pt-1">
+                                  {task.fases && task.fases.length > 0 && (
+                                    <p className="text-[7px] leading-tight"><strong className="text-slate-900 uppercase">Fases:</strong> {task.fases.join(', ')}</p>
+                                  )}
+                                  {task.contextos && task.contextos.length > 0 && (
+                                    <p className="text-[7px] leading-tight"><strong className="text-slate-900 uppercase">Contexto:</strong> {task.contextos.join(', ')}</p>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           </div>
 
@@ -762,6 +772,16 @@ export default function OfficialSessionSheetModal({ session, team, season, onClo
                               <p className="font-medium text-slate-800 leading-tight whitespace-pre-wrap">
                                 {task?.description || 'Tarea de progresión y conservación del balón en zona media.'}
                               </p>
+                              {(task?.fases?.length > 0 || task?.contextos?.length > 0) && (
+                                <div className="mt-1 space-y-0.5 border-t border-slate-200 pt-1">
+                                  {task.fases && task.fases.length > 0 && (
+                                    <p className="text-[7px] leading-tight"><strong className="text-slate-900 uppercase">Fases:</strong> {task.fases.join(', ')}</p>
+                                  )}
+                                  {task.contextos && task.contextos.length > 0 && (
+                                    <p className="text-[7px] leading-tight"><strong className="text-slate-900 uppercase">Contexto:</strong> {task.contextos.join(', ')}</p>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           </div>
 
@@ -828,6 +848,16 @@ export default function OfficialSessionSheetModal({ session, team, season, onClo
                               <p className="font-medium text-slate-800 leading-tight whitespace-pre-wrap">
                                 {task?.description || 'Simulación de partido con reglas de condicionamiento táctico.'}
                               </p>
+                              {(task?.fases?.length > 0 || task?.contextos?.length > 0) && (
+                                <div className="mt-1 space-y-0.5 border-t border-slate-200 pt-1">
+                                  {task.fases && task.fases.length > 0 && (
+                                    <p className="text-[7px] leading-tight"><strong className="text-slate-900 uppercase">Fases:</strong> {task.fases.join(', ')}</p>
+                                  )}
+                                  {task.contextos && task.contextos.length > 0 && (
+                                    <p className="text-[7px] leading-tight"><strong className="text-slate-900 uppercase">Contexto:</strong> {task.contextos.join(', ')}</p>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           </div>
 
@@ -889,6 +919,16 @@ export default function OfficialSessionSheetModal({ session, team, season, onClo
                               <p className="font-medium text-slate-800 leading-tight whitespace-pre-wrap">
                                 {task?.description || 'EstrategiaABP y estiramientos compensatorios finales.'}
                               </p>
+                              {(task?.fases?.length > 0 || task?.contextos?.length > 0) && (
+                                <div className="mt-1 space-y-0.5 border-t border-slate-200 pt-1">
+                                  {task.fases && task.fases.length > 0 && (
+                                    <p className="text-[7px] leading-tight"><strong className="text-slate-900 uppercase">Fases:</strong> {task.fases.join(', ')}</p>
+                                  )}
+                                  {task.contextos && task.contextos.length > 0 && (
+                                    <p className="text-[7px] leading-tight"><strong className="text-slate-900 uppercase">Contexto:</strong> {task.contextos.join(', ')}</p>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           </div>
 

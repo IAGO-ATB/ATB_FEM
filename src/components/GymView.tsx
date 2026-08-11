@@ -536,6 +536,7 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
 
   // Session Creation State & Modal Structure
   const [isCreatingSession, setIsCreatingSession] = useState(false);
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [sessionTitle, setSessionTitle] = useState('Mi Sesión de Entrenamiento');
   const [sessionDate, setSessionDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [selectedSessionPlayers, setSelectedSessionPlayers] = useState<string[]>([]);
@@ -645,6 +646,53 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
   // RPE logs state from Supabase
   const [rpeLogs, setRpeLogs] = useState<GymSessionLog[]>([]);
   const [viewingSession, setViewingSession] = useState<GymSessionLog | null>(null);
+
+  const handleOpenEditSessionModal = (log: GymSessionLog) => {
+    setEditingSessionId(log.id || null);
+    setSessionTitle(log.routine || 'Sesión de Entrenamiento');
+    setSessionDate(log.date || new Date().toISOString().split('T')[0]);
+    if (log.mesocycle) setSessionMesocycle(log.mesocycle);
+    if (log.microcycle) setSessionMicrocycle(log.microcycle);
+    if (log.sessionTypeCategory) setSessionTypeCategory(log.sessionTypeCategory);
+
+    setActivationExercises(log.activationExercises ? [...log.activationExercises] : []);
+    setMainBlockExercises(log.mainBlockExercises ? [...log.mainBlockExercises] : []);
+
+    let parsedDetails: any = null;
+    if (log.details) {
+      try {
+        parsedDetails = typeof log.details === 'string' ? JSON.parse(log.details) : log.details;
+      } catch (e) {}
+    }
+
+    if (parsedDetails?.targetPlayerIds && Array.isArray(parsedDetails.targetPlayerIds) && parsedDetails.targetPlayerIds.length > 0) {
+      setSelectedSessionPlayers(parsedDetails.targetPlayerIds);
+    } else if (log.participatingPlayers && log.participatingPlayers.length > 0) {
+      const matchedPlayerIds: string[] = [];
+      players.forEach(p => {
+        const pName = (p.nombre ? `${p.nombre} ${p.apellidos || ''}` : p.name).toLowerCase().trim();
+        const isMatched = log.participatingPlayers?.some(partName => {
+          const cleanPartName = partName.toLowerCase().trim();
+          return cleanPartName === pName || cleanPartName.includes(pName);
+        });
+        if (isMatched) {
+          matchedPlayerIds.push(p.id);
+        }
+      });
+      setSelectedSessionPlayers(matchedPlayerIds.length > 0 ? matchedPlayerIds : players.map(p => p.id));
+    } else {
+      setSelectedSessionPlayers(players.map(p => p.id));
+    }
+
+    if (log.playerId) {
+      setSessionPlayerId(log.playerId);
+    } else if (players.length > 0) {
+      setSessionPlayerId(players[0].id);
+    }
+
+    setViewingSession(null);
+    setIsCreatingSession(true);
+  };
 
   const [newLogPlayer, setNewLogPlayer] = useState('');
   const [newLogRoutine, setNewLogRoutine] = useState(routines[0]?.title || '');
@@ -1341,6 +1389,7 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
           <button
             type="button"
             onClick={() => {
+              setEditingSessionId(null);
               const teamName = selectedTeam ? selectedTeam.name : 'Equipo';
               setSessionTitle(`Sesión Gimnasio — ${teamName}`);
               setSessionDate(new Date().toISOString().split('T')[0]);
@@ -1582,6 +1631,19 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
                                             onClick={(e) => {
                                               e.stopPropagation();
                                               e.preventDefault();
+                                              handleOpenEditSessionModal(log);
+                                            }}
+                                            className="px-3 py-1 bg-amber-50 hover:bg-amber-100 text-amber-700 font-black rounded-xl text-xs border border-amber-200/80 flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+                                            title="Editar esta sesión"
+                                          >
+                                            <Edit3 className="w-3.5 h-3.5 text-amber-600" />
+                                            Editar
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              e.preventDefault();
                                               setSessionToDelete(log);
                                             }}
                                             className="p-1.5 text-slate-400 hover:text-rose-600 rounded-xl hover:bg-rose-50 transition-colors cursor-pointer"
@@ -1775,6 +1837,18 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
                                 <ExternalLink className="w-3.5 h-3.5" />
                                 Ver
                               </span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  e.preventDefault();
+                                  handleOpenEditSessionModal(log);
+                                }}
+                                className="p-1 text-amber-600 hover:text-amber-800 hover:bg-amber-50 rounded-lg transition-colors cursor-pointer"
+                                title="Editar sesión"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
                               <button
                                 type="button"
                                 onClick={(e) => {
@@ -2430,6 +2504,11 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
               {/* 1. HEADER CARD (Mi Sesión de Entrenamiento) */}
               <div className="bg-white rounded-3xl p-6 border-l-4 border-l-slate-900 border border-slate-200/80 shadow-xs space-y-4">
                 <div className="pr-10">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="px-2.5 py-0.5 bg-sky-100 text-sky-800 text-[10px] font-black rounded-md uppercase tracking-wider">
+                      {editingSessionId ? 'Editar Sesión' : 'Nueva Sesión'}
+                    </span>
+                  </div>
                   {isEditingTitle ? (
                     <input
                       type="text"
@@ -3022,7 +3101,7 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
                     };
 
                     const detailsJson = JSON.stringify(sessionDetails);
-                    const tempId = 'log-' + Date.now();
+                    const tempId = editingSessionId || ('log-' + Date.now());
 
                     const newSingleEntry: GymSessionLog = {
                       id: tempId,
@@ -3044,7 +3123,11 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
                       sessionType: topMode === 'grupo' ? 'group' : 'individual'
                     };
 
-                    setRpeLogs(prev => [newSingleEntry, ...prev]);
+                    if (editingSessionId) {
+                      setRpeLogs(prev => prev.map(item => String(item.id) === String(editingSessionId) ? newSingleEntry : item));
+                    } else {
+                      setRpeLogs(prev => [newSingleEntry, ...prev]);
+                    }
 
                     if (supabase) {
                       try {
@@ -3076,83 +3159,103 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
                           details: detailsJson
                         };
 
-                        let targetTableName = topMode === 'grupo'
-                          ? (isFemeninoA ? 'gym_group_sessions_femenino_a' : 'gym_group_sessions')
-                          : 'gym_individual_sessions';
-                        let data: any = null;
-                        let error: any = null;
+                        if (editingSessionId && !editingSessionId.startsWith('log-')) {
+                          const targetId = editingSessionId;
+                          await Promise.allSettled([
+                            supabase.from('gym_group_sessions_femenino_a').update(currentPayload).eq('id', targetId),
+                            supabase.from('gym_group_sessions').update(currentPayload).eq('id', targetId),
+                            supabase.from('gym_individual_sessions').update(currentPayload).eq('id', targetId),
+                            supabase.from('gym_sessions').update(currentPayload).eq('id', targetId)
+                          ]);
+                          if (typeof targetId === 'string' && /^\d+$/.test(targetId)) {
+                            const numId = parseInt(targetId, 10);
+                            await Promise.allSettled([
+                              supabase.from('gym_group_sessions_femenino_a').update(currentPayload).eq('id', numId),
+                              supabase.from('gym_group_sessions').update(currentPayload).eq('id', numId),
+                              supabase.from('gym_individual_sessions').update(currentPayload).eq('id', numId),
+                              supabase.from('gym_sessions').update(currentPayload).eq('id', numId)
+                            ]);
+                          }
+                        } else {
+                          let targetTableName = topMode === 'grupo'
+                            ? (isFemeninoA ? 'gym_group_sessions_femenino_a' : 'gym_group_sessions')
+                            : 'gym_individual_sessions';
+                          let data: any = null;
+                          let error: any = null;
 
-                        // Try insertion into target table first, then fallback to gym_sessions if target table missing
-                        for (let attempt = 0; attempt < 7; attempt++) {
-                          const res = await supabase.from(targetTableName).insert([currentPayload]).select();
-                          data = res.data;
-                          error = res.error;
+                          // Try insertion into target table first, then fallback to gym_sessions if target table missing
+                          for (let attempt = 0; attempt < 7; attempt++) {
+                            const res = await supabase.from(targetTableName).insert([currentPayload]).select();
+                            data = res.data;
+                            error = res.error;
 
-                          if (!error) break;
+                            if (!error) break;
 
-                          // If table does not exist, switch to fallback table
-                          if (error.message?.includes('relation') || error.message?.includes('does not exist')) {
-                            if (targetTableName === 'gym_group_sessions_femenino_a') {
-                              console.warn("Tabla 'gym_group_sessions_femenino_a' no existe. Usando fallback 'gym_group_sessions'...");
-                              targetTableName = 'gym_group_sessions';
-                              continue;
-                            } else if (targetTableName !== 'gym_sessions') {
-                              console.warn(`Tabla ${targetTableName} no existe. Usando fallback 'gym_sessions'...`);
-                              targetTableName = 'gym_sessions';
+                            // If table does not exist, switch to fallback table
+                            if (error.message?.includes('relation') || error.message?.includes('does not exist')) {
+                              if (targetTableName === 'gym_group_sessions_femenino_a') {
+                                console.warn("Tabla 'gym_group_sessions_femenino_a' no existe. Usando fallback 'gym_group_sessions'...");
+                                targetTableName = 'gym_group_sessions';
+                                continue;
+                              } else if (targetTableName !== 'gym_sessions') {
+                                console.warn(`Tabla ${targetTableName} no existe. Usando fallback 'gym_sessions'...`);
+                                targetTableName = 'gym_sessions';
+                                continue;
+                              }
+                            }
+
+                            // Handle invalid UUID syntax error
+                            if (error.message?.includes('invalid input syntax for type uuid')) {
+                              if (currentPayload.team_id) {
+                                delete currentPayload.team_id;
+                              } else if (currentPayload.player_id) {
+                                delete currentPayload.player_id;
+                              }
                               continue;
                             }
-                          }
 
-                          // Handle invalid UUID syntax error
-                          if (error.message?.includes('invalid input syntax for type uuid')) {
-                            if (currentPayload.team_id) {
-                              delete currentPayload.team_id;
-                            } else if (currentPayload.player_id) {
-                              delete currentPayload.player_id;
+                            // Check if error is due to an unknown column in the database schema
+                            const missingColMatch = error.message?.match(/column "(.*?)" of relation|Could not find the '(.*?)' column/i);
+                            if (missingColMatch) {
+                              const missingCol = missingColMatch[1] || missingColMatch[2];
+                              if (missingCol && missingCol in currentPayload) {
+                                delete currentPayload[missingCol];
+                                continue;
+                              }
                             }
-                            continue;
-                          }
 
-                          // Check if error is due to an unknown column in the database schema
-                          const missingColMatch = error.message?.match(/column "(.*?)" of relation|Could not find the '(.*?)' column/i);
-                          if (missingColMatch) {
-                            const missingCol = missingColMatch[1] || missingColMatch[2];
-                            if (missingCol && missingCol in currentPayload) {
-                              delete currentPayload[missingCol];
+                            // If error is about details or notes not existing
+                            if (error.message?.includes('notes') && 'notes' in currentPayload) {
+                              delete currentPayload.notes;
                               continue;
                             }
+                            if (error.message?.includes('details') && 'details' in currentPayload) {
+                              delete currentPayload.details;
+                              continue;
+                            }
+
+                            break;
                           }
 
-                          // If error is about details or notes not existing
-                          if (error.message?.includes('notes') && 'notes' in currentPayload) {
-                            delete currentPayload.notes;
-                            continue;
+                          if (error) {
+                            console.error('❌ Error guardando sesión en Supabase:', error.message);
+                          } else if (data && data[0]) {
+                            const realId = data[0].id;
+                            setRpeLogs(prev => prev.map(item => item.id === tempId ? { ...item, id: realId } : item));
                           }
-                          if (error.message?.includes('details') && 'details' in currentPayload) {
-                            delete currentPayload.details;
-                            continue;
-                          }
-
-                          break;
-                        }
-
-                        if (error) {
-                          console.error('❌ Error guardando sesión en Supabase:', error.message);
-                        } else if (data && data[0]) {
-                          const realId = data[0].id;
-                          setRpeLogs(prev => prev.map(item => item.id === tempId ? { ...item, id: realId } : item));
                         }
                       } catch (err) {
                         console.error('Error saving gym session:', err);
                       }
                     }
 
+                    setEditingSessionId(null);
                     setIsCreatingSession(false);
                   }}
                   className="px-7 py-3 bg-sky-500 hover:bg-sky-400 text-white font-black text-xs sm:text-sm rounded-2xl transition-all shadow-md hover:shadow-lg cursor-pointer flex items-center gap-2"
                 >
                   <Save className="w-4 h-4 text-white" />
-                  Guardar
+                  {editingSessionId ? 'Guardar Cambios' : 'Guardar'}
                 </button>
               </div>
             </motion.div>
@@ -3578,18 +3681,32 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
 
             {/* MODAL FOOTER */}
             <div className="flex items-center justify-between gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => {
-                  if (viewingSession) {
-                    setSessionToDelete(viewingSession);
-                  }
-                }}
-                className="px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs rounded-xl transition-colors cursor-pointer flex items-center gap-1.5 border border-rose-200"
-              >
-                <Trash2 className="w-4 h-4" />
-                Eliminar Sesión
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (viewingSession) {
+                      setSessionToDelete(viewingSession);
+                    }
+                  }}
+                  className="px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs rounded-xl transition-colors cursor-pointer flex items-center gap-1.5 border border-rose-200"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Eliminar Sesión
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (viewingSession) {
+                      handleOpenEditSessionModal(viewingSession);
+                    }
+                  }}
+                  className="px-4 py-2 bg-amber-50 hover:bg-amber-100 text-amber-700 font-bold text-xs rounded-xl transition-colors cursor-pointer flex items-center gap-1.5 border border-amber-200"
+                >
+                  <Edit3 className="w-4 h-4 text-amber-600" />
+                  Editar Sesión
+                </button>
+              </div>
 
               <div className="flex items-center gap-2">
                 <button

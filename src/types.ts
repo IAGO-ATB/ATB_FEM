@@ -101,6 +101,14 @@ export interface SessionStaffTask {
   foco2: string;
 }
 
+export interface VideoNote {
+  id: string;
+  timestamp: number; // seconds
+  description: string;
+  userName: string;
+  createdAt: string;
+}
+
 export interface TrainingSession {
   id: string;
   teamId: string;
@@ -113,6 +121,8 @@ export interface TrainingSession {
   microcycle?: string;
   dayType?: string; // MD+1, MD+2, MD-4, MD-3, MD-2, MD-1
   intensity: 'Baja' | 'Media' | 'Alta' | 'Muy Alta';
+  videoUrl?: string;
+  videoNotes?: VideoNote[];
   rpe?: number; // 1-10
   numPlayers?: string; // e.g. "14+2"
   availablePlayerNames?: string[];

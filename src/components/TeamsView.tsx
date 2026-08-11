@@ -121,7 +121,7 @@ export default function TeamsView({ season, teams: propTeams = INITIAL_TEAMS, on
         category: team.category,
         coach: team.coach || '',
         technicalStaff: team.technicalStaff || '',
-        staff: team.staff || {
+        staff: (team.staff as any) || {
           headCoach: { name: team.coach || '', image: '' },
           secondCoach: { name: '', image: '' },
           physicalTrainer: { name: '', image: '' },

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft, UserPlus, Search, Filter, Mail, Phone, MoreHorizontal, X, Trash2, Upload, Users, Plus } from 'lucide-react';
+import { ArrowLeft, UserPlus, Search, Filter, Mail, Phone, MoreHorizontal, X, Trash2, Upload, Users, Plus, BarChart2, Dumbbell, ClipboardList, FileText, Clock, ClipboardCheck, Sparkles } from 'lucide-react';
 import { Team, Player } from '../types';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabase';
@@ -30,6 +30,53 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
   const [playerToDelete, setPlayerToDelete] = useState<string | null>(null);
   const [cropperData, setCropperData] = useState<{ image: string } | null>(null);
   const [selectedPlayerDetail, setSelectedPlayerDetail] = useState<Player | null>(null);
+  const [activeProfileView, setActiveProfileView] = useState<'info' | 'training' | 'stats' | 'gym' | 'reports'>('info');
+  const [trainingStats, setTrainingStats] = useState<{
+    disponible: number;
+    comodin: number;
+    noDisponible: number;
+    totalMinutes: number;
+    loading: boolean;
+  }>({ disponible: 0, comodin: 0, noDisponible: 0, totalMinutes: 0, loading: false });
+
+  const fetchPlayerTrainingStats = async (playerId: string, teamId: string) => {
+    setTrainingStats(prev => ({ ...prev, loading: true }));
+    try {
+      if (!supabase) return;
+      const { data, error } = await supabase
+        .from('sessions')
+        .select('player_statuses, duration_min')
+        .eq('team_id', teamId);
+
+      if (error) throw error;
+
+      let disponible = 0;
+      let comodin = 0;
+      let noDisponible = 0;
+      let totalMinutes = 0;
+
+      data?.forEach(session => {
+        const statuses = session.player_statuses || {};
+        const status = statuses[playerId];
+        const minutes = Number(session.duration_min) || 0;
+
+        if (status === 'disponible') {
+          disponible++;
+          totalMinutes += minutes;
+        } else if (status === 'comodin') {
+          comodin++;
+          totalMinutes += minutes;
+        } else if (status === 'no_disponible') {
+          noDisponible++;
+        }
+      });
+
+      setTrainingStats({ disponible, comodin, noDisponible, totalMinutes, loading: false });
+    } catch (err) {
+      console.error('Error fetching training stats:', err);
+      setTrainingStats(prev => ({ ...prev, loading: false }));
+    }
+  };
   const [isEditingPlayer, setIsEditingPlayer] = useState(false);
   const [editingPlayerData, setEditingPlayerData] = useState<any>(null);
   const [editCropperData, setEditCropperData] = useState<{ image: string } | null>(null);
@@ -520,7 +567,10 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
               className="relative w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden"
             >
               <button 
-                onClick={() => setSelectedPlayerDetail(null)}
+                onClick={() => {
+                  setSelectedPlayerDetail(null);
+                  setActiveProfileView('info');
+                }}
                 className="absolute top-6 right-6 z-10 p-2 bg-white/80 backdrop-blur rounded-full text-slate-400 hover:text-slate-600 transition-colors shadow-sm"
               >
                 <X className="w-5 h-5" />
@@ -729,7 +779,7 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
                         />
                       </div>
                     </form>
-                  ) : (
+                  ) : activeProfileView === 'info' ? (
                     <div className="space-y-8">
                       <div className="flex items-start justify-between">
                         <div>
@@ -790,6 +840,123 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
                             <p className="text-xs text-slate-400 italic">Sin observaciones técnicas registradas.</p>
                           )}
                         </div>
+
+                        {/* Action Buttons */}
+                        <div className="mt-6 grid grid-cols-2 gap-3">
+                          <button 
+                            onClick={() => setActiveProfileView('stats')}
+                            className="flex items-center justify-center gap-2 p-3 bg-slate-50 hover:bg-slate-100 border border-slate-100 rounded-xl transition-all group cursor-pointer shadow-sm active:scale-95"
+                          >
+                            <BarChart2 className="w-4 h-4 text-sky-500 group-hover:scale-110 transition-transform" />
+                            <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">Estadísticas</span>
+                          </button>
+                          <button 
+                            onClick={() => {
+                              setActiveProfileView('training');
+                              fetchPlayerTrainingStats(selectedPlayerDetail.id, selectedPlayerDetail.teamId);
+                            }}
+                            className="flex items-center justify-center gap-2 p-3 bg-slate-50 hover:bg-slate-100 border border-slate-100 rounded-xl transition-all group cursor-pointer shadow-sm active:scale-95"
+                          >
+                            <ClipboardList className="w-4 h-4 text-sky-500 group-hover:scale-110 transition-transform" />
+                            <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">Entrenamientos</span>
+                          </button>
+                          <button 
+                            onClick={() => setActiveProfileView('gym')}
+                            className="flex items-center justify-center gap-2 p-3 bg-slate-50 hover:bg-slate-100 border border-slate-100 rounded-xl transition-all group cursor-pointer shadow-sm active:scale-95"
+                          >
+                            <Dumbbell className="w-4 h-4 text-sky-500 group-hover:scale-110 transition-transform" />
+                            <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">Gimnasio</span>
+                          </button>
+                          <button 
+                            onClick={() => setActiveProfileView('reports')}
+                            className="flex items-center justify-center gap-2 p-3 bg-slate-50 hover:bg-slate-100 border border-slate-100 rounded-xl transition-all group cursor-pointer shadow-sm active:scale-95"
+                          >
+                            <FileText className="w-4 h-4 text-sky-500 group-hover:scale-110 transition-transform" />
+                            <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">Informes</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : activeProfileView === 'training' ? (
+                    <div className="space-y-8">
+                      <div className="flex items-center justify-between">
+                        <button 
+                          onClick={() => setActiveProfileView('info')}
+                          className="flex items-center gap-2 text-slate-400 hover:text-slate-600 transition-colors"
+                        >
+                          <ArrowLeft className="w-4 h-4" />
+                          <span className="text-[10px] font-bold uppercase tracking-widest">Volver al Perfil</span>
+                        </button>
+                        <h4 className="text-lg font-black text-slate-900 uppercase tracking-tight">Entrenamientos</h4>
+                      </div>
+
+                      {trainingStats.loading ? (
+                        <div className="flex flex-col items-center justify-center py-20 gap-4">
+                          <div className="w-8 h-8 border-4 border-sky-500 border-t-transparent rounded-full animate-spin"></div>
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Cargando historial...</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-6">
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="bg-sky-500 p-6 rounded-[2rem] text-white shadow-xl shadow-sky-200">
+                              <div className="flex items-center justify-between mb-2">
+                                <Clock className="w-5 h-5 opacity-40" />
+                                <span className="text-[10px] font-black tracking-widest opacity-60">TOTAL MIN.</span>
+                              </div>
+                              <p className="text-4xl font-black">{trainingStats.totalMinutes}</p>
+                              <p className="text-[10px] font-bold mt-1 opacity-80">Minutos acumulados</p>
+                            </div>
+                            <div className="bg-slate-900 p-6 rounded-[2rem] text-white shadow-xl shadow-slate-200">
+                              <div className="flex items-center justify-between mb-2">
+                                <ClipboardCheck className="w-5 h-5 text-sky-400 opacity-60" />
+                                <span className="text-[10px] font-black tracking-widest opacity-40">SESIONES</span>
+                              </div>
+                              <p className="text-4xl font-black">{trainingStats.disponible + trainingStats.comodin + trainingStats.noDisponible}</p>
+                              <p className="text-[10px] font-bold mt-1 opacity-60">Participaciones totales</p>
+                            </div>
+                          </div>
+
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between p-4 bg-emerald-50 border border-emerald-100 rounded-2xl group transition-all hover:bg-emerald-100/50">
+                              <div className="flex items-center gap-3">
+                                <div className="w-2 h-2 bg-emerald-500 rounded-full" />
+                                <span className="text-xs font-bold text-emerald-800 uppercase tracking-wide">Disponible</span>
+                              </div>
+                              <span className="text-lg font-black text-emerald-600">{trainingStats.disponible}</span>
+                            </div>
+                            <div className="flex items-center justify-between p-4 bg-amber-50 border border-amber-100 rounded-2xl group transition-all hover:bg-amber-100/50">
+                              <div className="flex items-center gap-3">
+                                <div className="w-2 h-2 bg-amber-500 rounded-full" />
+                                <span className="text-xs font-bold text-amber-800 uppercase tracking-wide">Comodín</span>
+                              </div>
+                              <span className="text-lg font-black text-amber-600">{trainingStats.comodin}</span>
+                            </div>
+                            <div className="flex items-center justify-between p-4 bg-rose-50 border border-rose-100 rounded-2xl group transition-all hover:bg-rose-100/50">
+                              <div className="flex items-center gap-3">
+                                <div className="w-2 h-2 bg-rose-500 rounded-full" />
+                                <span className="text-xs font-bold text-rose-800 uppercase tracking-wide">No Disponible</span>
+                              </div>
+                              <span className="text-lg font-black text-rose-600">{trainingStats.noDisponible}</span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center py-20 gap-4 text-center">
+                      <button 
+                        onClick={() => setActiveProfileView('info')}
+                        className="flex items-center gap-2 text-slate-400 hover:text-slate-600 transition-colors mb-4"
+                      >
+                        <ArrowLeft className="w-4 h-4" />
+                        <span className="text-[10px] font-bold uppercase tracking-widest">Volver</span>
+                      </button>
+                      <div className="p-4 bg-slate-50 rounded-full">
+                        <Sparkles className="w-8 h-8 text-slate-300" />
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-xs font-black text-slate-800 uppercase tracking-widest">Sección en Desarrollo</p>
+                        <p className="text-[10px] text-slate-400 font-bold max-w-[200px]">Próximamente disponible con toda la analítica detallada.</p>
                       </div>
                     </div>
                   )}

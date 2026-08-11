@@ -36,7 +36,9 @@ import {
   ImageIcon,
   Crop,
   BarChart3,
-  Download
+  Download,
+  Video,
+  ExternalLink
 } from 'lucide-react';
 import { 
   format, 
@@ -52,7 +54,7 @@ import {
   parseISO
 } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { Team, TrainingSession, ExerciseTask, Player, SessionStaffTask } from '../types';
+import { Team, TrainingSession, ExerciseTask, Player, SessionStaffTask, VideoNote } from '../types';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabase';
 import ImageEditorModal from './ImageEditorModal';
@@ -366,6 +368,18 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
     }
     return hasSessions || mcNum === 1;
   };
+  const ensureProtocol = (url: string) => {
+    if (!url) return '';
+    const trimmed = url.trim();
+    if (trimmed.length === 11 && !trimmed.includes('.') && !trimmed.includes('/')) {
+      return `https://www.youtube.com/watch?v=${trimmed}`;
+    }
+    if (!/^https?:\/\//i.test(trimmed)) {
+      return `https://${trimmed}`;
+    }
+    return trimmed;
+  };
+
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [activeTaskTab, setActiveTaskTab] = useState<number>(0);
@@ -382,6 +396,8 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
     microcycle: string;
     dayType: string;
     intensity: 'Baja' | 'Media' | 'Alta' | 'Muy Alta';
+    videoUrl: string;
+    videoNotes: VideoNote[];
     playerStatuses: Record<string, 'disponible' | 'comodin' | 'no_disponible'>;
     objectivesTactical: string;
     objectivesPhysical: string;
@@ -398,6 +414,8 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
     microcycle: 'Microciclo 1',
     dayType: 'MD-3',
     intensity: 'Alta',
+    videoUrl: '',
+    videoNotes: [],
     playerStatuses: {},
     objectivesTactical: '',
     objectivesPhysical: '',
@@ -556,7 +574,8 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
             .select('*')
             .eq('team_id', selectedTeam.id)
             .eq('season', seasonStr)
-            .order('date', { ascending: false });
+            .order('date', { ascending: false })
+            .limit(100);
 
           if (error) {
             console.error('Supabase fetch error:', error.message);
@@ -568,6 +587,8 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
               teamId: d.team_id,
               sessionNumber: d.session_number,
               durationTotalMin: d.duration_min,
+              videoUrl: d.video_url,
+              videoNotes: d.video_notes || [],
               numPlayers: d.num_players,
               playerStatuses: d.player_statuses,
               objectivesTactical: d.obj_tactical,
@@ -614,6 +635,8 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
           microcycle: lastSession.microcycle,
           day_type: lastSession.dayType,
           intensity: lastSession.intensity,
+          video_url: lastSession.videoUrl,
+          video_notes: lastSession.videoNotes || [],
           num_players: lastSession.numPlayers,
           player_statuses: lastSession.playerStatuses,
           obj_tactical: lastSession.objectivesTactical,
@@ -723,6 +746,7 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
       microcycle: formData.microcycle,
       dayType: formData.dayType,
       intensity: formData.intensity,
+      videoUrl: formData.videoUrl,
       numPlayers,
       availablePlayerNames: availablePlayerIds, // Note: We store IDs here for robustness
       wildcardPlayerNames: wildcardPlayerIds,
@@ -818,6 +842,8 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
       microcycle: 'Microciclo 1',
       dayType: 'MD-3',
       intensity: 'Alta',
+      videoUrl: '',
+      videoNotes: [],
       playerStatuses: defaultStatuses,
       objectivesTactical: '',
       objectivesPhysical: '',
@@ -825,10 +851,10 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
       selectedMaterials: ['Conos', 'Petos (2 colores)', 'Balones Oficiales'],
       notes: '',
       tasks: [
-        { id: 't1', title: '', phase: 'Calentamiento', durationMin: 15, description: '', coach: '', foco: 'MIXTO', tipologia: 'LÚDICO' },
-        { id: 't2', title: '', phase: 'Tarea 1', durationMin: 20, description: '', coach: '', foco: 'MIXTO', tipologia: 'RONDOS' },
-        { id: 't3', title: '', phase: 'Tarea 2', durationMin: 20, description: '', coach: '', foco: 'MIXTO', tipologia: 'JUEGO DE POSICIÓN' },
-        { id: 't4', title: '', phase: 'Tarea 3', durationMin: 20, description: '', coach: '', foco: 'MIXTO', tipologia: 'PARTIDO CONDICIONADO' }
+        { id: 't1', title: '', phase: 'Calentamiento', durationMin: 15, description: '', coach: '', foco: 'MIXTO', tipologia: 'LÚDICO', fases: [], contextos: [] },
+        { id: 't2', title: '', phase: 'Tarea 1', durationMin: 20, description: '', coach: '', foco: 'MIXTO', tipologia: 'RONDOS', fases: [], contextos: [] },
+        { id: 't3', title: '', phase: 'Tarea 2', durationMin: 20, description: '', coach: '', foco: 'MIXTO', tipologia: 'JUEGO DE POSICIÓN', fases: [], contextos: [] },
+        { id: 't4', title: '', phase: 'Tarea 3', durationMin: 20, description: '', coach: '', foco: 'MIXTO', tipologia: 'PARTIDO CONDICIONADO', fases: [], contextos: [] }
       ],
       filialPlayers: [],
       sessionStaffTasks: []
@@ -875,6 +901,8 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
       microcycle: session.microcycle || 'Microciclo 1',
       dayType: session.dayType || 'MD-3',
       intensity: session.intensity || 'Alta',
+      videoUrl: session.videoUrl || '',
+      videoNotes: session.videoNotes || [],
       playerStatuses: resolvedStatuses,
       objectivesTactical: session.objectivesTactical || '',
       objectivesPhysical: session.objectivesPhysical || '',
@@ -1186,6 +1214,18 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                                             >
                                               <Edit3 className="w-4 h-4" />
                                             </button>
+                                            {session.videoUrl && (
+                                              <a
+                                                href={ensureProtocol(session.videoUrl)}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                onClick={(e) => e.stopPropagation()}
+                                                className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                                                title="Ver Video en YouTube"
+                                              >
+                                                <Video className="w-4 h-4" />
+                                              </a>
+                                            )}
                                             <button
                                               type="button"
                                               onClick={(e) => {
@@ -1291,7 +1331,10 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                                     title={session.title}
                                   >
                                     <span className="truncate max-w-[80%] uppercase tracking-tighter">{session.title}</span>
-                                    <span className="bg-sky-500 text-white px-1 rounded text-[8px]">{session.sessionNumber || '#'}</span>
+                                    <div className="flex items-center gap-1">
+                                      {session.videoUrl && <Video className="w-2.5 h-2.5 text-red-400" />}
+                                      <span className="bg-sky-500 text-white px-1 rounded text-[8px]">{session.sessionNumber || '#'}</span>
+                                    </div>
                                   </button>
                                 ))}
                               </div>
@@ -1402,6 +1445,17 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                       <option value="Alta">Alta</option>
                       <option value="Muy Alta">Muy Alta</option>
                     </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Video (Link YouTube)</label>
+                    <input
+                      type="url"
+                      value={formData.videoUrl}
+                      onChange={e => setFormData(p => ({ ...p, videoUrl: e.target.value }))}
+                      placeholder="https://youtube.com/..."
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:ring-2 focus:ring-sky-500 outline-none"
+                    />
                   </div>
                 </div>
               </div>
@@ -2319,6 +2373,17 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                     <Flame className="w-4 h-4 text-rose-400" />
                     Intensidad: {selectedSessionModal.intensity}
                   </span>
+                  {selectedSessionModal.videoUrl && (
+                    <a 
+                      href={ensureProtocol(selectedSessionModal.videoUrl)} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1.5 px-2 py-0.5 bg-red-500/20 hover:bg-red-500/40 border border-red-500/30 rounded-full text-[10px] font-black text-red-100 transition-all ml-2 cursor-pointer"
+                    >
+                      <Video className="w-3.5 h-3.5" />
+                      VER VIDEO
+                    </a>
+                  )}
                 </div>
 
                 <div className="absolute top-4 right-14 flex items-center gap-2">
@@ -2332,6 +2397,8 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                         microcycle: selectedSessionModal.microcycle,
                         dayType: selectedSessionModal.dayType,
                         intensity: selectedSessionModal.intensity,
+                        videoUrl: selectedSessionModal.videoUrl || '',
+                        videoNotes: selectedSessionModal.videoNotes || [],
                         playerStatuses: selectedSessionModal.playerStatuses || {},
                         objectivesTactical: selectedSessionModal.objectivesTactical || '',
                         objectivesPhysical: selectedSessionModal.objectivesPhysical || '',
@@ -2339,7 +2406,8 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                         selectedMaterials: selectedSessionModal.materials || [],
                         notes: selectedSessionModal.notes || '',
                         tasks: selectedSessionModal.tasks || [],
-                        filialPlayers: selectedSessionModal.filialPlayerNames || []
+                        filialPlayers: selectedSessionModal.filialPlayerNames || [],
+                        sessionStaffTasks: selectedSessionModal.sessionStaffTasks || []
                       });
                       setSelectedSessionModal(null);
                       setActiveTab('create');

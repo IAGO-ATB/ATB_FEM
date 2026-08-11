@@ -41,10 +41,13 @@ import {
   Tag,
   Database,
   Copy,
-  Code
+  Code,
+  Eye,
+  Paperclip
 } from 'lucide-react';
 import { Team, Player } from '../types';
 import { supabase } from '../lib/supabase';
+import { PdfViewer } from './PdfViewer';
 
 const FEMENINO_A_SQL_SCRIPT = `-- TABLA DE SESIONES GRUPALES DE GIMNASIO PARA ATB FEMENINO A
 CREATE TABLE IF NOT EXISTS gym_group_sessions_femenino_a (
@@ -79,6 +82,29 @@ CREATE POLICY "Actualizacion publica gym_group_sessions_femenino_a"
 
 CREATE POLICY "Eliminacion publica gym_group_sessions_femenino_a"
   ON gym_group_sessions_femenino_a FOR DELETE USING (true);
+`;
+
+const INDIVIDUAL_REPORTS_SQL_SCRIPT = `-- TABLA DE INFORMES INDIVIDUALES DE GIMNASIO (HISTORIAL)
+CREATE TABLE IF NOT EXISTS gym_individual_reports (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  player_id TEXT,
+  player_name TEXT,
+  title TEXT,
+  date DATE DEFAULT CURRENT_DATE,
+  file_url TEXT,
+  file_name TEXT,
+  file_type TEXT DEFAULT 'pdf',
+  category TEXT DEFAULT 'Valoración Física',
+  notes TEXT
+);
+
+ALTER TABLE gym_individual_reports ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Lectura publica gym_individual_reports" ON gym_individual_reports FOR SELECT USING (true);
+CREATE POLICY "Insercion publica gym_individual_reports" ON gym_individual_reports FOR INSERT WITH CHECK (true);
+CREATE POLICY "Actualizacion publica gym_individual_reports" ON gym_individual_reports FOR UPDATE USING (true);
+CREATE POLICY "Eliminacion publica gym_individual_reports" ON gym_individual_reports FOR DELETE USING (true);
 `;
 
 export interface ExerciseItem {
@@ -166,6 +192,20 @@ interface GymViewProps {
   teams?: Team[];
 }
 
+export interface IndividualReport {
+  id: string;
+  playerId: string;
+  playerName?: string;
+  title: string;
+  date: string;
+  fileUrl?: string;
+  fileName?: string;
+  fileType?: 'pdf' | 'image' | 'other';
+  category?: string;
+  notes?: string;
+  created_at?: string;
+}
+
 function getYouTubeEmbedUrl(url: string | undefined): string | null {
   if (!url) return null;
   const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|shorts\/|watch\?v=|\&v=)([^#\&\?]*).*/;
@@ -204,6 +244,208 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
   const [selectedChainFilter, setSelectedChainFilter] = useState<string>('TODOS');
   const [selectedExerciseId, setSelectedExerciseId] = useState<string | null>(null);
   const [expandedRoutineId, setExpandedRoutineId] = useState<string | null>(null);
+
+  // Individual Reports State
+  const [individualReports, setIndividualReports] = useState<IndividualReport[]>(() => {
+    try {
+      const saved = localStorage.getItem('gym_individual_reports_v1');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch (e) {}
+    return [];
+  });
+  const [showAddReportModal, setShowAddReportModal] = useState(false);
+  const [viewingReportModal, setViewingReportModal] = useState<IndividualReport | null>(null);
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (viewingReportModal?.fileUrl) {
+      if (viewingReportModal.fileType === 'pdf' || viewingReportModal.fileUrl.startsWith('data:application/pdf')) {
+        let createdUrl = viewingReportModal.fileUrl;
+        if (viewingReportModal.fileUrl.startsWith('data:')) {
+          try {
+            const parts = viewingReportModal.fileUrl.split(',');
+            const mime = parts[0].match(/:(.*?);/)?.[1] || 'application/pdf';
+            const bstr = atob(parts[1]);
+            let n = bstr.length;
+            const u8arr = new Uint8Array(n);
+            while (n--) {
+              u8arr[n] = bstr.charCodeAt(n);
+            }
+            const blob = new Blob([u8arr], { type: mime });
+            createdUrl = URL.createObjectURL(blob);
+          } catch (e) {
+            console.error('Error converting PDF data URL to blob:', e);
+          }
+        }
+        setPdfPreviewUrl(createdUrl);
+        return () => {
+          if (createdUrl && createdUrl.startsWith('blob:')) {
+            URL.revokeObjectURL(createdUrl);
+          }
+        };
+      } else {
+        setPdfPreviewUrl(viewingReportModal.fileUrl);
+      }
+    } else {
+      setPdfPreviewUrl(null);
+    }
+  }, [viewingReportModal]);
+
+  const [newReport, setNewReport] = useState({
+    title: '',
+    date: new Date().toISOString().split('T')[0],
+    category: 'Valoración Física',
+    notes: '',
+    fileName: '',
+    fileUrl: '',
+    fileType: 'pdf' as 'pdf' | 'image' | 'other'
+  });
+
+  useEffect(() => {
+    if (!supabase) return;
+    const fetchReports = async () => {
+      try {
+        let { data, error } = await supabase
+          .from('gym_individual_reports')
+          .select('*')
+          .order('date', { ascending: false });
+
+        if (!error && data && data.length > 0) {
+          const mapped: IndividualReport[] = data.map((item: any) => ({
+            id: String(item.id),
+            playerId: item.player_id || item.playerId,
+            playerName: item.player_name || item.playerName,
+            title: item.title,
+            date: item.date || (item.created_at ? item.created_at.split('T')[0] : new Date().toISOString().split('T')[0]),
+            fileUrl: item.file_url || item.fileUrl,
+            fileName: item.file_name || item.fileName,
+            fileType: item.file_type || item.fileType || 'pdf',
+            category: item.category || 'Valoración Física',
+            notes: item.notes || ''
+          }));
+          setIndividualReports(mapped);
+        }
+      } catch (e) {
+        console.error('Error fetching gym individual reports:', e);
+      }
+    };
+    fetchReports();
+  }, []);
+
+  const handleReportFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+    const isImage = file.type.startsWith('image/');
+    const fileType: 'pdf' | 'image' | 'other' = isPdf ? 'pdf' : (isImage ? 'image' : 'other');
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (reader.result) {
+        setNewReport(prev => ({
+          ...prev,
+          fileName: file.name,
+          fileUrl: String(reader.result),
+          fileType
+        }));
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSaveReport = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newReport.title.trim() || !selectedPlayerForGym) return;
+
+    const pName = selectedPlayerForGym.nombre 
+      ? `${selectedPlayerForGym.nombre} ${selectedPlayerForGym.apellidos || ''}` 
+      : selectedPlayerForGym.name;
+
+    const created: IndividualReport = {
+      id: String(Date.now()),
+      playerId: selectedPlayerForGym.id,
+      playerName: pName,
+      title: newReport.title.trim(),
+      date: newReport.date || new Date().toISOString().split('T')[0],
+      fileUrl: newReport.fileUrl,
+      fileName: newReport.fileName,
+      fileType: newReport.fileType,
+      category: newReport.category,
+      notes: newReport.notes.trim()
+    };
+
+    setIndividualReports(prev => [created, ...prev]);
+
+    if (supabase) {
+      try {
+        const payload: any = {
+          player_id: created.playerId,
+          player_name: created.playerName,
+          title: created.title,
+          date: created.date,
+          file_url: created.fileUrl,
+          file_name: created.fileName,
+          file_type: created.fileType,
+          category: created.category,
+          notes: created.notes
+        };
+
+        let { data, error } = await supabase.from('gym_individual_reports').insert([payload]).select();
+        
+        if (error) {
+          if (error.code === '42P01' || error.message?.includes('does not exist')) {
+            console.warn('Tabla gym_individual_reports no existe en Supabase');
+          } else {
+            console.error('Error insertando informe en Supabase:', error);
+          }
+        } else if (data && data[0]) {
+          // Actualizar el ID local con el ID real de la base de datos (UUID)
+          setIndividualReports(prev => prev.map(r => r.id === created.id ? { ...r, id: String(data[0].id) } : r));
+        }
+      } catch (err) {
+        console.error('Error insertando informe en Supabase:', err);
+      }
+    }
+
+    try {
+      const saved = localStorage.getItem('gym_individual_reports_v1');
+      const list = saved ? JSON.parse(saved) : [];
+      localStorage.setItem('gym_individual_reports_v1', JSON.stringify([created, ...list]));
+    } catch (err) {}
+
+    setShowAddReportModal(false);
+    setNewReport({
+      title: '',
+      date: new Date().toISOString().split('T')[0],
+      category: 'Valoración Física',
+      notes: '',
+      fileName: '',
+      fileUrl: '',
+      fileType: 'pdf'
+    });
+  };
+
+  const handleDeleteReport = async (id: string) => {
+    setIndividualReports(prev => prev.filter(r => r.id !== id));
+
+    if (supabase) {
+      try {
+        await supabase.from('gym_individual_reports').delete().eq('id', id);
+      } catch (err) {}
+    }
+
+    try {
+      const saved = localStorage.getItem('gym_individual_reports_v1');
+      if (saved) {
+        const list = JSON.parse(saved).filter((item: any) => item.id !== id);
+        localStorage.setItem('gym_individual_reports_v1', JSON.stringify(list));
+      }
+    } catch (err) {}
+  };
 
   // Load team players when selectedTeam or season changes
   useEffect(() => {
@@ -271,7 +513,7 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
     setEditingExerciseId(ex.id);
     setExName(ex.name || '');
     setExStimulus((ex.stimulus as 'Fuerza' | 'Pliometría') || 'Fuerza');
-    setExMuscleChain(ex.muscleChain || ex.category || 'Cadena Anterior');
+    setExMuscleChain((ex.muscleChain || ex.category || 'Cadena Anterior') as any);
     setExDescription(ex.description || ex.notes || '');
     setExVideoType(ex.videoType || 'youtube');
     if (ex.videoType === 'file') {
@@ -469,7 +711,7 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
 
         // 1. Fetch group sessions for Femenino A
         try {
-          const { data: groupFemAData } = await supabase.from('gym_group_sessions_femenino_a').select('*').order('created_at', { ascending: false });
+          const { data: groupFemAData } = await supabase.from('gym_group_sessions_femenino_a').select('*').order('created_at', { ascending: false }).limit(50);
           if (groupFemAData) {
             groupFemAData.forEach(item => {
               if (item.id && !seenIds.has(item.id)) {
@@ -482,7 +724,7 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
 
         // 2. Fetch group sessions
         try {
-          const { data: groupData } = await supabase.from('gym_group_sessions').select('*').order('created_at', { ascending: false });
+          const { data: groupData } = await supabase.from('gym_group_sessions').select('*').order('created_at', { ascending: false }).limit(50);
           if (groupData) {
             groupData.forEach(item => {
               if (item.id && !seenIds.has(item.id)) {
@@ -495,7 +737,7 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
 
         // 2. Fetch individual sessions
         try {
-          const { data: indData } = await supabase.from('gym_individual_sessions').select('*').order('created_at', { ascending: false });
+          const { data: indData } = await supabase.from('gym_individual_sessions').select('*').order('created_at', { ascending: false }).limit(50);
           if (indData) {
             indData.forEach(item => {
               if (item.id && !seenIds.has(item.id)) {
@@ -508,7 +750,7 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
 
         // 3. Fallback: fetch legacy gym_sessions table
         try {
-          const { data: legacyData } = await supabase.from('gym_sessions').select('*').order('created_at', { ascending: false });
+          const { data: legacyData } = await supabase.from('gym_sessions').select('*').order('created_at', { ascending: false }).limit(50);
           if (legacyData) {
             legacyData.forEach(item => {
               if (item.id && !seenIds.has(item.id)) {
@@ -1542,6 +1784,124 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
                                 }}
                                 className="p-1 text-slate-400 hover:text-rose-600 rounded-lg transition-colors cursor-pointer"
                                 title="Eliminar registro"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                {/* Historial de Informes de la Jugadora */}
+                <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-3.5">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                      <FileText className="w-4 h-4 text-sky-500" />
+                      Historial de Informes
+                    </h4>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewReport({
+                          title: '',
+                          date: new Date().toISOString().split('T')[0],
+                          category: 'Valoración Física',
+                          notes: '',
+                          fileName: '',
+                          fileUrl: '',
+                          fileType: 'pdf'
+                        });
+                        setShowAddReportModal(true);
+                      }}
+                      className="px-3 py-1.5 bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      Añadir Informe
+                    </button>
+                  </div>
+
+                  {(() => {
+                    const pName = selectedPlayerForGym.nombre 
+                      ? `${selectedPlayerForGym.nombre} ${selectedPlayerForGym.apellidos || ''}` 
+                      : selectedPlayerForGym.name;
+
+                    // Filter by player and sort chronologically by date descending
+                    const playerReports = individualReports
+                      .filter(r => r.playerId === selectedPlayerForGym.id || (r.playerName && r.playerName.toLowerCase() === pName.toLowerCase()))
+                      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+                    if (playerReports.length === 0) {
+                      return (
+                        <p className="text-xs text-slate-400 italic py-4 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                          No hay informes adjuntos para {pName} todavía.
+                        </p>
+                      );
+                    }
+
+                    return (
+                      <div className="space-y-2.5">
+                        {playerReports.map((report) => (
+                          <div
+                            key={report.id}
+                            className="p-3.5 bg-slate-50 hover:bg-sky-50/50 hover:border-sky-300 rounded-xl border border-slate-200/80 flex items-center justify-between text-xs gap-3 transition-all group/report"
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className={`p-2.5 rounded-xl shrink-0 ${
+                                report.fileType === 'pdf' 
+                                  ? 'bg-rose-50 text-rose-600 border border-rose-200' 
+                                  : 'bg-emerald-50 text-emerald-600 border border-emerald-200'
+                              }`}>
+                                {report.fileType === 'pdf' ? <FileText className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                              </div>
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-bold text-slate-900 group-hover/report:text-sky-700 transition-colors truncate">
+                                    {report.title}
+                                  </span>
+                                  {report.category && (
+                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-200/70 text-slate-700 uppercase tracking-wider">
+                                      {report.category}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-2 text-[10px] text-slate-500 mt-0.5">
+                                  <span className="font-semibold text-slate-700">
+                                    {report.date && report.date.includes('-') ? report.date.split('-').reverse().join('/') : report.date}
+                                  </span>
+                                  {report.fileName && (
+                                    <>
+                                      <span>•</span>
+                                      <span className="truncate max-w-[160px] text-slate-400">{report.fileName}</span>
+                                    </>
+                                  )}
+                                </div>
+                                {report.notes && (
+                                  <p className="text-[11px] text-slate-600 mt-1 line-clamp-1 italic">
+                                    "{report.notes}"
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                              {report.fileUrl && (
+                                <button
+                                  type="button"
+                                  onClick={() => setViewingReportModal(report)}
+                                  className="px-2.5 py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-700 font-extrabold rounded-lg text-xs border border-sky-200/80 flex items-center gap-1 transition-colors cursor-pointer"
+                                >
+                                  <Eye className="w-3.5 h-3.5" />
+                                  Ver
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteReport(report.id)}
+                                className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                                title="Eliminar informe"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
@@ -3297,6 +3657,245 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
           </div>
         )}
       </AnimatePresence>
+
+      {/* MODAL AÑADIR INFORME */}
+      {showAddReportModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <motion.div
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl border border-slate-100 max-h-[90vh] overflow-y-auto"
+          >
+            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-sky-100 text-sky-600 rounded-xl">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900">Añadir Nuevo Informe</h3>
+                  <p className="text-[11px] text-slate-500 font-medium">
+                    Adjunta un PDF o imagen para {selectedPlayerForGym?.nombre || selectedPlayerForGym?.name || 'la jugadora'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAddReportModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveReport} className="space-y-4">
+              <div>
+                <label className="block text-xs font-extrabold text-slate-700 uppercase tracking-wide mb-1">
+                  Título del Informe *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ej: Valoración Isocinética Trimestral"
+                  value={newReport.title}
+                  onChange={(e) => setNewReport({ ...newReport, title: e.target.value })}
+                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-sky-500 outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-extrabold text-slate-700 uppercase tracking-wide mb-1">
+                    Fecha *
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={newReport.date}
+                    onChange={(e) => setNewReport({ ...newReport, date: e.target.value })}
+                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-sky-500 outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-extrabold text-slate-700 uppercase tracking-wide mb-1">
+                    Categoría
+                  </label>
+                  <select
+                    value={newReport.category}
+                    onChange={(e) => setNewReport({ ...newReport, category: e.target.value })}
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-sky-500 outline-none"
+                  >
+                    <option value="Valoración Física">Valoración Física</option>
+                    <option value="Informe Médico">Informe Médico</option>
+                    <option value="Control de Lesión">Control de Lesión</option>
+                    <option value="Resonancia / Ecografía">Resonancia / Ecografía</option>
+                    <option value="Antropometría / Nutrición">Antropometría / Nutrición</option>
+                    <option value="Otro">Otro</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-extrabold text-slate-700 uppercase tracking-wide mb-1">
+                  Adjuntar Documento (PDF o Imagen)
+                </label>
+                <div className="border-2 border-dashed border-slate-200 hover:border-sky-400 bg-slate-50 hover:bg-sky-50/40 rounded-2xl p-4 text-center transition-all relative">
+                  <input
+                    type="file"
+                    accept=".pdf,image/*"
+                    onChange={handleReportFileChange}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  />
+                  <div className="flex flex-col items-center gap-1">
+                    <Upload className="w-6 h-6 text-sky-500" />
+                    {newReport.fileName ? (
+                      <div className="text-xs font-bold text-sky-700">
+                        Documento seleccionado: <span className="underline">{newReport.fileName}</span>
+                      </div>
+                    ) : (
+                      <>
+                        <span className="text-xs font-bold text-slate-700">Haz clic o arrastra un archivo aquí</span>
+                        <span className="text-[10px] text-slate-400">Soporta PDF o Imágenes (PNG, JPG, WEBP)</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-extrabold text-slate-700 uppercase tracking-wide mb-1">
+                  Notas / Observaciones
+                </label>
+                <textarea
+                  rows={2}
+                  placeholder="Comentarios adicionales o conclusiones del informe..."
+                  value={newReport.notes}
+                  onChange={(e) => setNewReport({ ...newReport, notes: e.target.value })}
+                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-sky-500 outline-none resize-none"
+                />
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAddReportModal(false)}
+                  className="flex-1 px-4 py-2.5 border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-xl text-xs font-extrabold transition-colors cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 bg-sky-500 hover:bg-sky-600 text-white py-2.5 rounded-xl text-xs font-black transition-colors shadow-sm shadow-sky-200 cursor-pointer"
+                >
+                  Guardar Informe
+                </button>
+              </div>
+            </form>
+          </motion.div>
+        </div>
+      )}
+
+      {/* MODAL VER INFORME */}
+      {viewingReportModal && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <motion.div
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-white rounded-3xl max-w-3xl w-full p-6 space-y-4 shadow-2xl border border-slate-100 max-h-[92vh] flex flex-col"
+          >
+            <div className="flex justify-between items-center border-b border-slate-100 pb-3 shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-sky-100 text-sky-600 rounded-xl">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900">{viewingReportModal.title}</h3>
+                  <p className="text-[11px] text-slate-500 font-medium">
+                    {viewingReportModal.playerName} — {viewingReportModal.date} ({viewingReportModal.category})
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setViewingReportModal(null)}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {viewingReportModal.notes && (
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs text-slate-700 shrink-0">
+                <span className="font-bold block mb-0.5 text-slate-900">Observaciones:</span>
+                {viewingReportModal.notes}
+              </div>
+            )}
+
+            <div className="flex-1 bg-slate-900 rounded-2xl p-2 flex flex-col overflow-hidden min-h-[450px] relative">
+              {viewingReportModal.fileUrl ? (
+                viewingReportModal.fileType === 'pdf' || viewingReportModal.fileUrl.includes('application/pdf') ? (
+                  <PdfViewer
+                    url={pdfPreviewUrl || viewingReportModal.fileUrl}
+                    title={viewingReportModal.title}
+                  />
+                ) : (
+                  <div className="flex-1 flex items-center justify-center overflow-auto">
+                    <img
+                      src={viewingReportModal.fileUrl}
+                      alt={viewingReportModal.title}
+                      className="max-h-[60vh] object-contain rounded-xl shadow-md"
+                    />
+                  </div>
+                )
+              ) : (
+                <div className="flex-1 flex items-center justify-center text-slate-400 text-xs italic py-12">
+                  No hay archivo visualizable para este informe.
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-between items-center border-t border-slate-100 pt-3 shrink-0 gap-2 flex-wrap">
+              {viewingReportModal.fileUrl && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <a
+                    href={pdfPreviewUrl || viewingReportModal.fileUrl}
+                    download={viewingReportModal.fileName || 'informe.pdf'}
+                    className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 font-extrabold text-xs rounded-xl transition-colors flex items-center gap-2 cursor-pointer"
+                  >
+                    <Download className="w-4 h-4" />
+                    Descargar
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const url = pdfPreviewUrl || viewingReportModal.fileUrl;
+                      if (!url) return;
+                      const win = window.open(url, '_blank');
+                      if (!win || win.closed || typeof win.closed === 'undefined') {
+                        const w = window.open('', '_blank');
+                        if (w) {
+                          w.document.write(`<html><head><title>${viewingReportModal.title}</title></head><body style="margin:0"><embed width="100%" height="100%" src="${url}" type="application/pdf"></body></html>`);
+                        }
+                      }
+                    }}
+                    className="px-3.5 py-2 bg-sky-50 hover:bg-sky-100 text-sky-700 font-extrabold text-xs rounded-xl border border-sky-200 transition-colors flex items-center gap-2 cursor-pointer"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                    Abrir en pestaña nueva
+                  </button>
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => setViewingReportModal(null)}
+                className="px-5 py-2 bg-sky-500 hover:bg-sky-600 text-white font-extrabold text-xs rounded-xl transition-colors cursor-pointer ml-auto"
+              >
+                Cerrar
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
 
       {/* SQL SCHEMA CODE MODAL FOR FEMENINO A */}
       {showSqlModal && (

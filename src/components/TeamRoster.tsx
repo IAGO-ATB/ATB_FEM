@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft, UserPlus, Search, Filter, Mail, Phone, MoreHorizontal, X, Trash2, Upload, Users, Plus, BarChart2, Dumbbell, ClipboardList, FileText, Clock, ClipboardCheck, Sparkles } from 'lucide-react';
+import { ArrowLeft, UserPlus, Search, Filter, Mail, Phone, MoreHorizontal, X, Trash2, Upload, Users, Plus, BarChart2, Dumbbell, ClipboardList, FileText, Clock, ClipboardCheck, Sparkles, Activity, Layers, Target, TrendingUp, Zap } from 'lucide-react';
 import { Team, Player } from '../types';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabase';
@@ -77,6 +77,237 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
       setTrainingStats(prev => ({ ...prev, loading: false }));
     }
   };
+
+  const [gymStats, setGymStats] = useState<{
+    loading: boolean;
+    totalGroupSessions: number;
+    totalIndividualSessions: number;
+    sessionsByType: Record<string, number>;
+    exercisesByMuscleGroup: Record<string, number>;
+    totalExercises: number;
+    recentSessions: Array<{
+      id: string;
+      date: string;
+      routine: string;
+      sessionTypeCategory?: string;
+      exercisesCount: number;
+      sessionType: 'group' | 'individual';
+    }>;
+  }>({
+    loading: false,
+    totalGroupSessions: 0,
+    totalIndividualSessions: 0,
+    sessionsByType: {},
+    exercisesByMuscleGroup: {},
+    totalExercises: 0,
+    recentSessions: []
+  });
+
+  const fetchPlayerGymStats = async (player: Player) => {
+    setGymStats(prev => ({ ...prev, loading: true }));
+    try {
+      if (!supabase) {
+        setGymStats(prev => ({ ...prev, loading: false }));
+        return;
+      }
+
+      const pFullName = (player.nombre ? `${player.nombre} ${player.apellidos || ''}` : player.name).trim().toLowerCase();
+      const pFirstName = (player.nombre || player.name.split(' ')[0] || '').trim().toLowerCase();
+      const playerId = String(player.id);
+
+      // 1. Fetch gym exercise library for muscle group mapping lookup
+      const exerciseLibMap: Record<string, string> = {};
+      try {
+        const { data: exData } = await supabase.from('gym_exercises').select('*');
+        if (exData) {
+          exData.forEach((ex: any) => {
+            const group = ex.muscle_chain || ex.muscle_group || ex.category || ex.muscleGroup;
+            if (group) {
+              if (ex.id) exerciseLibMap[String(ex.id)] = group;
+              if (ex.name) exerciseLibMap[ex.name.trim().toLowerCase()] = group;
+            }
+          });
+        }
+      } catch (e) {}
+
+      // 2. Query group session tables from Supabase
+      const allGroupLogs: any[] = [];
+      const seenIds = new Set<string>();
+
+      const fetchTableLogs = async (tableName: string) => {
+        try {
+          const { data } = await supabase.from(tableName).select('*').order('created_at', { ascending: false }).limit(100);
+          if (data) {
+            data.forEach(item => {
+              const key = `${tableName}-${item.id}`;
+              if (!seenIds.has(key)) {
+                seenIds.add(key);
+                allGroupLogs.push(item);
+              }
+            });
+          }
+        } catch (e) {}
+      };
+
+      await Promise.all([
+        fetchTableLogs('gym_group_sessions_femenino_a'),
+        fetchTableLogs('gym_group_sessions'),
+        fetchTableLogs('gym_sessions'),
+        fetchTableLogs('gym_individual_sessions')
+      ]);
+
+      let totalGroupSessions = 0;
+      let totalIndividualSessions = 0;
+      const sessionsByType: Record<string, number> = {};
+      const exercisesByMuscleGroup: Record<string, number> = {};
+      let totalExercises = 0;
+      const recentSessions: any[] = [];
+
+      allGroupLogs.forEach(row => {
+        let parsed: any = null;
+        const rawData = row.notes || row.details;
+        if (rawData) {
+          try {
+            parsed = typeof rawData === 'string' ? JSON.parse(rawData) : rawData;
+          } catch (e) {}
+        }
+
+        const targetPlayerIds: string[] = (parsed?.targetPlayerIds || []).map((id: any) => String(id));
+        const participatingPlayers: string[] = (parsed?.participatingPlayers || row.participating_players || []).map((p: any) => String(p));
+        const isIndividual = Boolean(row.player_id && !participatingPlayers.length && !targetPlayerIds.length);
+        const sessionType = row.sessionType || (isIndividual ? 'individual' : 'group');
+
+        // Participation check
+        let isParticipant = false;
+
+        if (targetPlayerIds.length > 0) {
+          isParticipant = targetPlayerIds.includes(playerId);
+        } else if (participatingPlayers.length > 0) {
+          isParticipant = participatingPlayers.some(pName => {
+            const cleanPName = String(pName).trim().toLowerCase();
+            return cleanPName === pFullName || cleanPName === pFirstName || cleanPName.includes(pFirstName) || pFullName.includes(cleanPName);
+          });
+        } else if (row.player_id) {
+          isParticipant = String(row.player_id) === playerId;
+        } else if (row.player_name) {
+          const cleanName = String(row.player_name).trim().toLowerCase();
+          isParticipant = cleanName === pFullName || cleanName === pFirstName || cleanName.includes(pFirstName);
+        } else if (row.team_id || row.team) {
+          if (player.teamId && (String(row.team_id) === String(player.teamId) || String(row.team) === String(player.teamId))) {
+            isParticipant = true;
+          } else if (team.name && row.team === team.name) {
+            isParticipant = true;
+          } else {
+            isParticipant = true;
+          }
+        } else {
+          isParticipant = true;
+        }
+
+        if (isParticipant) {
+          if (sessionType === 'group' || !row.player_id) {
+            totalGroupSessions++;
+          } else {
+            totalIndividualSessions++;
+          }
+
+          // Session type category
+          let rawType = row.session_type_category || row.tipo || row.type || parsed?.sessionTypeCategory || parsed?.tipo || parsed?.type;
+          if (!rawType || rawType === 'group' || rawType === 'individual') {
+            rawType = row.routine_title || row.routine || row.routine_name || 'General';
+          }
+
+          const typeCategory = String(rawType).trim();
+          const formattedType = typeCategory.charAt(0).toUpperCase() + typeCategory.slice(1);
+          sessionsByType[formattedType] = (sessionsByType[formattedType] || 0) + 1;
+
+          // Exercises breakdown
+          const activationExercises: any[] = parsed?.activationExercises || row.activation_exercises || [];
+          const mainBlockExercises: any[] = parsed?.mainBlockExercises || row.main_block_exercises || [];
+          const allExercises = [...activationExercises, ...mainBlockExercises];
+
+          let sessionExCount = 0;
+
+          allExercises.forEach(ex => {
+            sessionExCount++;
+            totalExercises++;
+
+            const inner = ex.exercise || ex;
+            const exName = (inner.name || inner.exerciseName || ex.name || ex.exerciseName || '').trim();
+            const exId = String(inner.id || ex.id || '');
+
+            let rawMuscle = inner.muscleChain || inner.muscleGroup || inner.category || 
+                            ex.muscleChain || ex.muscleGroup || ex.category || 
+                            ex.muscle_chain || ex.muscle_group;
+
+            if (!rawMuscle || rawMuscle === 'Mix' || rawMuscle === 'General') {
+              if (exId && exerciseLibMap[exId]) {
+                rawMuscle = exerciseLibMap[exId];
+              } else if (exName && exerciseLibMap[exName.toLowerCase()]) {
+                rawMuscle = exerciseLibMap[exName.toLowerCase()];
+              }
+            }
+
+            // Infer muscle chain / group from exercise name keywords if rawMuscle is still generic or missing
+            if (!rawMuscle || rawMuscle === 'Mix' || rawMuscle === 'General' || rawMuscle === 'General / Mix') {
+              const nameLower = exName.toLowerCase();
+              if (nameLower.includes('sentadilla') || nameLower.includes('squat') || nameLower.includes('zancada') || nameLower.includes('prensa') || nameLower.includes('cuadriceps') || nameLower.includes('extensión') || nameLower.includes('zancadas')) {
+                rawMuscle = 'Cadena Anterior';
+              } else if (nameLower.includes('peso muerto') || nameLower.includes('deadlift') || nameLower.includes('hip thrust') || nameLower.includes('isquio') || nameLower.includes('femoral') || nameLower.includes('gluteo') || nameLower.includes('glúteo') || nameLower.includes('nordico') || nameLower.includes('buenos dias')) {
+                rawMuscle = 'Cadena Posterior';
+              } else if (nameLower.includes('adduct') || nameLower.includes('aductor') || nameLower.includes('abduct') || nameLower.includes('abductor')) {
+                rawMuscle = 'Cadena Interna / Externa';
+              } else if (nameLower.includes('plancha') || nameLower.includes('core') || nameLower.includes('rollout') || nameLower.includes('pallof') || nameLower.includes('abs') || nameLower.includes('abdomen') || nameLower.includes('rueda') || nameLower.includes('crunch') || nameLower.includes('deadbug') || nameLower.includes('bird dog')) {
+                rawMuscle = 'CORE / Abdomen';
+              } else if (nameLower.includes('press') || nameLower.includes('militar') || nameLower.includes('remo') || nameLower.includes('dominada') || nameLower.includes('pull down') || nameLower.includes('jalon') || nameLower.includes('jalón') || nameLower.includes('biceps') || nameLower.includes('triceps') || nameLower.includes('flexion') || nameLower.includes('push up') || nameLower.includes('hombro')) {
+                rawMuscle = 'Tren Superior';
+              } else if (nameLower.includes('salto') || nameLower.includes('plio') || nameLower.includes('cmj') || nameLower.includes('sj') || nameLower.includes('drop jump') || nameLower.includes('multisaltos')) {
+                rawMuscle = 'Pliometría / Salto';
+              }
+            }
+
+            let cleanMuscle = rawMuscle ? String(rawMuscle).trim() : 'General / Trabajo Integrado';
+            if (cleanMuscle.toLowerCase().includes('anterior')) cleanMuscle = 'Cadena Anterior';
+            else if (cleanMuscle.toLowerCase().includes('posterior')) cleanMuscle = 'Cadena Posterior';
+            else if (cleanMuscle.toLowerCase().includes('interna')) cleanMuscle = 'Cadena Interna';
+            else if (cleanMuscle.toLowerCase().includes('externa')) cleanMuscle = 'Cadena Externa';
+            else if (cleanMuscle.toLowerCase().includes('core')) cleanMuscle = 'CORE / Abdomen';
+            else if (cleanMuscle.toLowerCase().includes('superior')) cleanMuscle = 'Tren Superior';
+
+            exercisesByMuscleGroup[cleanMuscle] = (exercisesByMuscleGroup[cleanMuscle] || 0) + 1;
+          });
+
+          recentSessions.push({
+            id: String(row.id || Math.random()),
+            date: row.session_date || row.date || (row.created_at ? new Date(row.created_at).toISOString().split('T')[0] : '—'),
+            routine: row.routine_title || row.routine || 'Sesión de Gimnasio',
+            sessionTypeCategory: formattedType,
+            exercisesCount: sessionExCount,
+            sessionType: sessionType === 'group' ? 'group' : 'individual'
+          });
+        }
+      });
+
+      setGymStats({
+        loading: false,
+        totalGroupSessions,
+        totalIndividualSessions,
+        sessionsByType,
+        exercisesByMuscleGroup,
+        totalExercises,
+        recentSessions: recentSessions.slice(0, 10)
+      });
+    } catch (err) {
+      console.error('Error fetching gym stats for player:', err);
+      setGymStats(prev => ({ ...prev, loading: false }));
+    }
+  };
+
+  useEffect(() => {
+    if (selectedPlayerDetail && activeProfileView === 'gym') {
+      fetchPlayerGymStats(selectedPlayerDetail);
+    }
+  }, [selectedPlayerDetail?.id, activeProfileView]);
   const [isEditingPlayer, setIsEditingPlayer] = useState(false);
   const [editingPlayerData, setEditingPlayerData] = useState<any>(null);
   const [editCropperData, setEditCropperData] = useState<{ image: string } | null>(null);
@@ -564,21 +795,21 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden"
+              className="relative w-full max-w-2xl max-h-[80vh] bg-white rounded-3xl shadow-2xl overflow-hidden my-auto border border-slate-100"
             >
               <button 
                 onClick={() => {
                   setSelectedPlayerDetail(null);
                   setActiveProfileView('info');
                 }}
-                className="absolute top-6 right-6 z-10 p-2 bg-white/80 backdrop-blur rounded-full text-slate-400 hover:text-slate-600 transition-colors shadow-sm"
+                className="absolute top-4 right-4 z-20 p-2 bg-white/90 backdrop-blur rounded-full text-slate-400 hover:text-slate-600 transition-colors shadow-sm cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
 
-              <div className="flex flex-col md:flex-row">
+              <div className="flex flex-col md:flex-row max-h-[80vh] overflow-hidden">
                 {/* Image Section */}
-                <div className="md:w-5/12 bg-slate-50 relative aspect-square md:aspect-auto">
+                <div className="md:w-4/12 bg-slate-50 relative aspect-video md:aspect-auto shrink-0 border-b md:border-b-0 md:border-r border-slate-100 min-h-[160px] md:min-h-0">
                   {selectedPlayerDetail.image ? (
                     <img 
                       src={selectedPlayerDetail.image} 
@@ -588,18 +819,18 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
                     />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-slate-200">
-                      <Users className="w-24 h-24" />
+                      <Users className="w-20 h-20" />
                     </div>
                   )}
                   {Boolean(selectedPlayerDetail.number || selectedPlayerDetail.dorsal) && (
-                    <div className="absolute top-6 left-6 w-12 h-12 bg-sky-600 text-white rounded-2xl flex items-center justify-center text-xl font-black shadow-lg">
+                    <div className="absolute top-4 left-4 w-10 h-10 bg-sky-600 text-white rounded-xl flex items-center justify-center text-lg font-black shadow-md">
                       {selectedPlayerDetail.number || selectedPlayerDetail.dorsal}
                     </div>
                   )}
                   
                   {isEditingPlayer && (
-                    <label className="absolute bottom-6 right-6 p-3 bg-white text-sky-600 rounded-full shadow-xl border border-slate-100 cursor-pointer hover:bg-sky-50 transition-colors">
-                      <Upload className="w-5 h-5" />
+                    <label className="absolute bottom-4 right-4 p-2.5 bg-white text-sky-600 rounded-full shadow-lg border border-slate-100 cursor-pointer hover:bg-sky-50 transition-colors">
+                      <Upload className="w-4 h-4" />
                       <input 
                         type="file" 
                         className="hidden" 
@@ -620,7 +851,7 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
                 </div>
 
                 {/* Info Section */}
-                <div className="md:w-7/12 p-8 overflow-y-auto max-h-[80vh] md:max-h-none">
+                <div className="md:w-8/12 p-6 overflow-y-auto max-h-[80vh] flex-1">
                   {isEditingPlayer ? (
                     <form onSubmit={handleUpdatePlayer} className="space-y-6">
                       <div className="flex items-center justify-between">
@@ -939,6 +1170,180 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
                               <span className="text-lg font-black text-rose-600">{trainingStats.noDisponible}</span>
                             </div>
                           </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : activeProfileView === 'gym' ? (
+                    <div className="space-y-6">
+                      {/* Header & Back Button */}
+                      <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                        <button 
+                          onClick={() => setActiveProfileView('info')}
+                          className="flex items-center gap-2 text-slate-400 hover:text-slate-600 transition-colors"
+                        >
+                          <ArrowLeft className="w-4 h-4" />
+                          <span className="text-[10px] font-bold uppercase tracking-widest">Volver al Perfil</span>
+                        </button>
+                        <div className="flex items-center gap-2">
+                          <Dumbbell className="w-5 h-5 text-sky-500" />
+                          <h4 className="text-base font-black text-slate-900 uppercase tracking-tight">Análisis de Gimnasio</h4>
+                        </div>
+                      </div>
+
+                      {gymStats.loading ? (
+                        <div className="flex flex-col items-center justify-center py-16 gap-4">
+                          <div className="w-8 h-8 border-4 border-sky-500 border-t-transparent rounded-full animate-spin"></div>
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Cargando analítica de gimnasio...</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-6">
+                          {/* 1. KPI HIGHLIGHT CARDS: SESIONES GRUPALES PARTICIPADAS */}
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="bg-slate-900 p-5 rounded-3xl text-white shadow-xl shadow-slate-200 relative overflow-hidden border border-slate-800">
+                              <div className="flex items-center justify-between mb-2">
+                                <Users className="w-5 h-5 text-sky-400" />
+                                <span className="text-[9px] font-black tracking-widest text-slate-400 uppercase">Grupales</span>
+                              </div>
+                              <p className="text-4xl font-black text-sky-400">{gymStats.totalGroupSessions}</p>
+                              <p className="text-[10px] font-bold mt-1 text-slate-300">Sesiones Grupales Participadas</p>
+                            </div>
+
+                            <div className="bg-gradient-to-br from-sky-500 to-sky-600 p-5 rounded-3xl text-white shadow-xl shadow-sky-200 relative overflow-hidden">
+                              <div className="flex items-center justify-between mb-2">
+                                <Activity className="w-5 h-5 text-white/80" />
+                                <span className="text-[9px] font-black tracking-widest text-white/70 uppercase">Ejercicios</span>
+                              </div>
+                              <p className="text-4xl font-black">{gymStats.totalExercises}</p>
+                              <p className="text-[10px] font-bold mt-1 text-sky-100">Ejercicios Realizados</p>
+                            </div>
+                          </div>
+
+                          {/* 2. BREAKDOWN: SESIONES POR TIPO */}
+                          <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
+                            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                              <div className="flex items-center gap-2">
+                                <Layers className="w-4 h-4 text-sky-500" />
+                                <h5 className="text-xs font-black text-slate-900 uppercase tracking-wider">Sesiones por Tipo</h5>
+                              </div>
+                              <span className="text-[10px] font-extrabold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg">
+                                {Object.keys(gymStats.sessionsByType).length} Tipos
+                              </span>
+                            </div>
+
+                            {Object.keys(gymStats.sessionsByType).length === 0 ? (
+                              <div className="py-6 text-center space-y-1">
+                                <p className="text-xs font-bold text-slate-500">Sin registros por tipo de sesión</p>
+                                <p className="text-[10px] text-slate-400">Las sesiones de gimnasio registradas no tienen tipo categorizado aún.</p>
+                              </div>
+                            ) : (
+                              <div className="space-y-3">
+                                {Object.entries(gymStats.sessionsByType).map(([type, count]) => {
+                                  const total = gymStats.totalGroupSessions || 1;
+                                  const percentage = Math.round((count / total) * 100);
+                                  return (
+                                    <div key={type} className="space-y-1.5">
+                                      <div className="flex items-center justify-between text-xs font-bold text-slate-700">
+                                        <span className="flex items-center gap-2">
+                                          <span className="w-2.5 h-2.5 rounded-full bg-sky-500 shadow-2xs"></span>
+                                          {type}
+                                        </span>
+                                        <span className="text-slate-900 font-black">
+                                          {count} {count === 1 ? 'sesión' : 'sesiones'} <span className="text-[10px] text-slate-400 font-normal">({percentage}%)</span>
+                                        </span>
+                                      </div>
+                                      <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden p-0.5">
+                                        <div 
+                                          className="bg-sky-500 h-1.5 rounded-full transition-all duration-500"
+                                          style={{ width: `${Math.min(100, Math.max(6, percentage))}%` }}
+                                        ></div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* 3. BREAKDOWN: EJERCICIOS POR GRUPO MUSCULAR */}
+                          <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
+                            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                              <div className="flex items-center gap-2">
+                                <Target className="w-4 h-4 text-emerald-500" />
+                                <h5 className="text-xs font-black text-slate-900 uppercase tracking-wider">Ejercicios por Grupo Muscular</h5>
+                              </div>
+                              <span className="text-[10px] font-extrabold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg">
+                                {gymStats.totalExercises} Ejercicios Totales
+                              </span>
+                            </div>
+
+                            {Object.keys(gymStats.exercisesByMuscleGroup).length === 0 ? (
+                              <div className="py-6 text-center space-y-1">
+                                <p className="text-xs font-bold text-slate-500">Sin ejercicios clasificados</p>
+                                <p className="text-[10px] text-slate-400">Los ejercicios de las sesiones participadas no especifican grupo muscular.</p>
+                              </div>
+                            ) : (
+                              <div className="space-y-3">
+                                {Object.entries(gymStats.exercisesByMuscleGroup)
+                                  .sort((a, b) => b[1] - a[1])
+                                  .map(([group, count]) => {
+                                    const totalEx = gymStats.totalExercises || 1;
+                                    const percentage = Math.round((count / totalEx) * 100);
+                                    return (
+                                      <div key={group} className="p-3.5 bg-slate-50/80 hover:bg-slate-50 border border-slate-200/70 rounded-xl space-y-2 transition-colors">
+                                        <div className="flex items-center justify-between gap-2">
+                                          <span className="text-xs font-black text-slate-800 flex items-center gap-2">
+                                            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0"></span>
+                                            {group}
+                                          </span>
+                                          <span className="text-xs font-black text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200/70 shadow-2xs whitespace-nowrap">
+                                            {count} {count === 1 ? 'ejercicio' : 'ejercicios'}
+                                          </span>
+                                        </div>
+                                        <div className="flex items-center gap-3">
+                                          <div className="flex-1 bg-slate-200/70 rounded-full h-2 overflow-hidden">
+                                            <div 
+                                              className="bg-emerald-500 h-2 rounded-full transition-all duration-500"
+                                              style={{ width: `${Math.min(100, Math.max(5, percentage))}%` }}
+                                            ></div>
+                                          </div>
+                                          <span className="text-[10px] font-bold text-slate-400 shrink-0">{percentage}% del total</span>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* 4. HISTORIAL RECIENTE DE SESIONES DE GIMNASIO */}
+                          {gymStats.recentSessions.length > 0 && (
+                            <div className="bg-slate-50/90 p-4 rounded-2xl border border-slate-200/70 space-y-3">
+                              <div className="flex items-center justify-between border-b border-slate-200/60 pb-2">
+                                <h5 className="text-[11px] font-black text-slate-700 uppercase tracking-wider">Historial Reciente de Gimnasio</h5>
+                                <span className="text-[9px] font-bold text-slate-400">Últimas {gymStats.recentSessions.length}</span>
+                              </div>
+                              <div className="space-y-2">
+                                {gymStats.recentSessions.map(session => (
+                                  <div key={session.id} className="p-3 bg-white rounded-xl border border-slate-200/60 shadow-2xs flex items-center justify-between">
+                                    <div className="space-y-0.5">
+                                      <p className="text-xs font-black text-slate-900">{session.routine}</p>
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-[10px] text-slate-400 font-bold">{session.date}</span>
+                                        <span className="text-[9px] font-black uppercase px-2 py-0.5 bg-sky-50 text-sky-700 rounded-md border border-sky-100">
+                                          {session.sessionTypeCategory || 'Gimnasio'}
+                                        </span>
+                                      </div>
+                                    </div>
+                                    <div className="text-right">
+                                      <span className="text-xs font-extrabold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-lg">
+                                        {session.exercisesCount} {session.exercisesCount === 1 ? 'ejercicio' : 'ejercicios'}
+                                      </span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>

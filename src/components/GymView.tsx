@@ -1141,8 +1141,9 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
 
       let y = 60;
 
-      // Participating players list
-      if (session.participatingPlayers && session.participatingPlayers.length > 0) {
+      // Participating players list (omit in group session PDF export)
+      const isGroupSession = session.sessionType === 'group' || !session.playerName || session.playerName === 'Grupo';
+      if (!isGroupSession && session.participatingPlayers && session.participatingPlayers.length > 0) {
         doc.setFontSize(9);
         doc.setFont('helvetica', 'bold');
         doc.setTextColor(15, 23, 42);
@@ -3152,29 +3153,80 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
                           date: dateStr,
                           session_date: dateStr,
                           microcycle: sessionMicrocycle,
-                          type: isFemeninoA ? sessionTypeCategory : undefined,
-                          session_type_category: isFemeninoA ? sessionTypeCategory : undefined,
-                          tipo: isFemeninoA ? sessionTypeCategory : undefined,
                           notes: detailsJson,
                           details: detailsJson
                         };
 
+                        if (sessionTypeCategory) {
+                          currentPayload.type = sessionTypeCategory;
+                          currentPayload.session_type_category = sessionTypeCategory;
+                          currentPayload.tipo = sessionTypeCategory;
+                        }
+
                         if (editingSessionId && !editingSessionId.startsWith('log-')) {
                           const targetId = editingSessionId;
-                          await Promise.allSettled([
-                            supabase.from('gym_group_sessions_femenino_a').update(currentPayload).eq('id', targetId),
-                            supabase.from('gym_group_sessions').update(currentPayload).eq('id', targetId),
-                            supabase.from('gym_individual_sessions').update(currentPayload).eq('id', targetId),
-                            supabase.from('gym_sessions').update(currentPayload).eq('id', targetId)
-                          ]);
-                          if (typeof targetId === 'string' && /^\d+$/.test(targetId)) {
-                            const numId = parseInt(targetId, 10);
-                            await Promise.allSettled([
-                              supabase.from('gym_group_sessions_femenino_a').update(currentPayload).eq('id', numId),
-                              supabase.from('gym_group_sessions').update(currentPayload).eq('id', numId),
-                              supabase.from('gym_individual_sessions').update(currentPayload).eq('id', numId),
-                              supabase.from('gym_sessions').update(currentPayload).eq('id', numId)
-                            ]);
+                          const numId = (typeof targetId === 'string' && /^\d+$/.test(targetId)) ? parseInt(targetId, 10) : null;
+                          
+                          const tablesToTry = topMode === 'grupo'
+                            ? (isFemeninoA ? ['gym_group_sessions_femenino_a', 'gym_group_sessions', 'gym_sessions', 'gym_individual_sessions'] : ['gym_group_sessions', 'gym_group_sessions_femenino_a', 'gym_sessions', 'gym_individual_sessions'])
+                            : ['gym_individual_sessions', 'gym_sessions', 'gym_group_sessions', 'gym_group_sessions_femenino_a'];
+
+                          let successfullyUpdated = false;
+
+                          const updateTableWithPayload = async (tableName: string, idToMatch: any) => {
+                            const p = { ...currentPayload };
+                            for (let attempt = 0; attempt < 8; attempt++) {
+                              const res = await supabase.from(tableName).update(p).eq('id', idToMatch).select();
+                              if (!res.error) {
+                                if (res.data && res.data.length > 0) {
+                                  return true;
+                                }
+                                return false;
+                              }
+
+                              const errText = res.error.message || '';
+                              if (errText.includes('invalid input syntax for type uuid')) {
+                                if ('team_id' in p) delete p.team_id;
+                                else if ('player_id' in p) delete p.player_id;
+                                continue;
+                              }
+
+                              const missingColMatch = errText.match(/column "(.*?)" of relation|Could not find the '(.*?)' column/i);
+                              if (missingColMatch) {
+                                const missingCol = missingColMatch[1] || missingColMatch[2];
+                                if (missingCol && missingCol in p) {
+                                  delete p[missingCol];
+                                  continue;
+                                }
+                              }
+
+                              if (errText.includes('notes') && 'notes' in p) {
+                                delete p.notes;
+                                continue;
+                              }
+                              if (errText.includes('details') && 'details' in p) {
+                                delete p.details;
+                                continue;
+                              }
+
+                              break;
+                            }
+                            return false;
+                          };
+
+                          for (const table of tablesToTry) {
+                            let ok = await updateTableWithPayload(table, targetId);
+                            if (!ok && numId !== null) {
+                              ok = await updateTableWithPayload(table, numId);
+                            }
+                            if (ok) {
+                              successfullyUpdated = true;
+                              break;
+                            }
+                          }
+
+                          if (!successfullyUpdated) {
+                            console.warn('⚠️ No se encontró la sesión con ID', targetId, 'para actualizar en Supabase. Se reintentará inserción/actualización.');
                           }
                         } else {
                           let targetTableName = topMode === 'grupo'

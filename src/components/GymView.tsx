@@ -178,6 +178,7 @@ export interface GymSessionLog {
   date: string;
   mesocycle?: string;
   microcycle?: string;
+  macrocycle?: string;
   sessionTypeCategory?: string;
   activationExercises?: SessionExerciseItem[];
   mainBlockExercises?: SessionExerciseItem[];
@@ -544,6 +545,7 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
   const [sessionPlayerId, setSessionPlayerId] = useState<string>('');
   const [sessionMesocycle, setSessionMesocycle] = useState('M1');
   const [sessionMicrocycle, setSessionMicrocycle] = useState('MICROCICLO 1');
+  const [sessionMacrocycle, setSessionMacrocycle] = useState('MACROCICLO 1');
   const [sessionTypeCategory, setSessionTypeCategory] = useState<string>('ST1');
   const [showSqlModal, setShowSqlModal] = useState(false);
   const [sqlCopied, setSqlCopied] = useState(false);
@@ -653,6 +655,8 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
     setSessionDate(log.date || new Date().toISOString().split('T')[0]);
     if (log.mesocycle) setSessionMesocycle(log.mesocycle);
     if (log.microcycle) setSessionMicrocycle(log.microcycle);
+    if (log.macrocycle) setSessionMacrocycle(log.macrocycle);
+    else setSessionMacrocycle('MACROCICLO 1');
     if (log.sessionTypeCategory) setSessionTypeCategory(log.sessionTypeCategory);
 
     setActivationExercises(log.activationExercises ? [...log.activationExercises] : []);
@@ -686,6 +690,58 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
 
     if (log.playerId) {
       setSessionPlayerId(log.playerId);
+    } else if (players.length > 0) {
+      setSessionPlayerId(players[0].id);
+    }
+
+    setViewingSession(null);
+    setIsCreatingSession(true);
+  };
+
+  const handleDuplicateSession = (log: GymSessionLog) => {
+    setEditingSessionId(null);
+    const origTitle = log.routine || 'Sesión de Entrenamiento';
+    setSessionTitle(origTitle.endsWith('(Copia)') ? origTitle : `${origTitle} (Copia)`);
+    setSessionDate(new Date().toISOString().split('T')[0]);
+    if (log.mesocycle) setSessionMesocycle(log.mesocycle);
+    if (log.microcycle) setSessionMicrocycle(log.microcycle);
+    if (log.macrocycle) setSessionMacrocycle(log.macrocycle);
+    else setSessionMacrocycle('MACROCICLO 1');
+    if (log.sessionTypeCategory) setSessionTypeCategory(log.sessionTypeCategory);
+
+    setActivationExercises(log.activationExercises ? JSON.parse(JSON.stringify(log.activationExercises)) : []);
+    setMainBlockExercises(log.mainBlockExercises ? JSON.parse(JSON.stringify(log.mainBlockExercises)) : []);
+
+    let parsedDetails: any = null;
+    if (log.details) {
+      try {
+        parsedDetails = typeof log.details === 'string' ? JSON.parse(log.details) : log.details;
+      } catch (e) {}
+    }
+
+    if (parsedDetails?.targetPlayerIds && Array.isArray(parsedDetails.targetPlayerIds) && parsedDetails.targetPlayerIds.length > 0) {
+      setSelectedSessionPlayers(parsedDetails.targetPlayerIds);
+    } else if (log.participatingPlayers && log.participatingPlayers.length > 0) {
+      const matchedPlayerIds: string[] = [];
+      players.forEach(p => {
+        const pName = (p.nombre ? `${p.nombre} ${p.apellidos || ''}` : p.name).toLowerCase().trim();
+        const isMatched = log.participatingPlayers?.some(partName => {
+          const cleanPartName = partName.toLowerCase().trim();
+          return cleanPartName === pName || cleanPartName.includes(pName);
+        });
+        if (isMatched) {
+          matchedPlayerIds.push(p.id);
+        }
+      });
+      setSelectedSessionPlayers(matchedPlayerIds.length > 0 ? matchedPlayerIds : players.map(p => p.id));
+    } else {
+      setSelectedSessionPlayers(players.map(p => p.id));
+    }
+
+    if (log.playerId) {
+      setSessionPlayerId(log.playerId);
+    } else if (selectedPlayerForGym) {
+      setSessionPlayerId(selectedPlayerForGym.id);
     } else if (players.length > 0) {
       setSessionPlayerId(players[0].id);
     }
@@ -748,6 +804,7 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
             date: item.session_date || item.date || (item.created_at ? new Date(item.created_at).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]),
             mesocycle: parsed?.mesocycle,
             microcycle: item.microcycle || parsed?.microcycle,
+            macrocycle: item.macrocycle || item.macro_cycle || parsed?.macrocycle || parsed?.macro_cycle,
             sessionTypeCategory: item.session_type_category || item.tipo || item.type || parsed?.sessionTypeCategory || parsed?.tipo || parsed?.type,
             activationExercises: parsed?.activationExercises || [],
             mainBlockExercises: parsed?.mainBlockExercises || [],
@@ -1396,6 +1453,7 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
               setSessionDate(new Date().toISOString().split('T')[0]);
               setSessionMesocycle('M1');
               setSessionMicrocycle('MICROCICLO 1');
+              setSessionMacrocycle('MACROCICLO 1');
               setSessionTypeCategory('ST1');
               setActivationExercises([]);
               setMainBlockExercises([]);
@@ -1632,6 +1690,19 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
                                             onClick={(e) => {
                                               e.stopPropagation();
                                               e.preventDefault();
+                                              handleDuplicateSession(log);
+                                            }}
+                                            className="px-3 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-black rounded-xl text-xs border border-indigo-200/80 flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+                                            title="Duplicar esta sesión"
+                                          >
+                                            <Copy className="w-3.5 h-3.5 text-indigo-600" />
+                                            Duplicar
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              e.preventDefault();
                                               handleOpenEditSessionModal(log);
                                             }}
                                             className="px-3 py-1 bg-amber-50 hover:bg-amber-100 text-amber-700 font-black rounded-xl text-xs border border-amber-200/80 flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
@@ -1783,7 +1854,8 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
                       setSessionPlayerId(selectedPlayerForGym?.id || (players[0]?.id || ''));
                       setSelectedSessionPlayers(selectedPlayerForGym ? [selectedPlayerForGym.id] : players.map(p => p.id));
                       setSessionMesocycle('M1');
-                      setSessionMicrocycle('SEMANA 1');
+                      setSessionMicrocycle('MICROCICLO 1');
+                      setSessionMacrocycle('MACROCICLO 1');
                       setActivationExercises([]);
                       setMainBlockExercises([]);
                       setIsCreatingSession(true);
@@ -1838,6 +1910,18 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
                                 <ExternalLink className="w-3.5 h-3.5" />
                                 Ver
                               </span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  e.preventDefault();
+                                  handleDuplicateSession(log);
+                                }}
+                                className="p-1 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
+                                title="Duplicar sesión"
+                              >
+                                <Copy className="w-3.5 h-3.5" />
+                              </button>
                               <button
                                 type="button"
                                 onClick={(e) => {
@@ -2588,6 +2672,23 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
                       </div>
                     ) : null}
 
+                    {/* Macrociclo */}
+                    <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3.5 py-1.5 rounded-full text-xs font-bold text-slate-700">
+                      <Layers className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                      <span className="whitespace-nowrap">Macrociclo:</span>
+                      <select
+                        value={sessionMacrocycle}
+                        onChange={(e) => setSessionMacrocycle(e.target.value)}
+                        className="bg-white border border-slate-200 text-slate-900 font-extrabold px-2.5 py-1 rounded-lg outline-none cursor-pointer text-xs uppercase"
+                      >
+                        {Array.from({ length: 10 }, (_, i) => i + 1).map((num) => (
+                          <option key={num} value={`MACROCICLO ${num}`}>
+                            MACROCICLO {num}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
                     {/* Microciclo */}
                     <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3.5 py-1.5 rounded-full text-xs font-bold text-slate-700">
                       <Activity className="w-3.5 h-3.5 text-amber-500 shrink-0" />
@@ -3093,6 +3194,7 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
                       sessionTypeCategory: isFemeninoA ? sessionTypeCategory : undefined,
                       tipo: isFemeninoA ? sessionTypeCategory : undefined,
                       microcycle: sessionMicrocycle,
+                      macrocycle: sessionMacrocycle,
                       activationExercises,
                       mainBlockExercises,
                       participatingPlayers: playerNamesList,
@@ -3117,6 +3219,7 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
                       mesocycle: isFemeninoA ? undefined : sessionMesocycle,
                       sessionTypeCategory: isFemeninoA ? sessionTypeCategory : undefined,
                       microcycle: sessionMicrocycle,
+                      macrocycle: sessionMacrocycle,
                       activationExercises: [...activationExercises],
                       mainBlockExercises: [...mainBlockExercises],
                       participatingPlayers: playerNamesList,
@@ -3153,6 +3256,8 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
                           date: dateStr,
                           session_date: dateStr,
                           microcycle: sessionMicrocycle,
+                          macrocycle: sessionMacrocycle,
+                          macro_cycle: sessionMacrocycle,
                           notes: detailsJson,
                           details: detailsJson
                         };
@@ -3577,6 +3682,11 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
                       <Users className="w-3.5 h-3.5 text-rose-500" />
                       {viewingSession.playerName}
                     </span>
+                    {viewingSession.macrocycle && (
+                      <span className="bg-indigo-100 text-indigo-800 px-2.5 py-0.5 rounded-lg font-black text-[11px]">
+                        {viewingSession.macrocycle}
+                      </span>
+                    )}
                     {viewingSession.microcycle && (
                       <span className="bg-amber-100 text-amber-800 px-2.5 py-0.5 rounded-lg font-black text-[11px]">
                         {viewingSession.microcycle}
@@ -3745,6 +3855,18 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
                 >
                   <Trash2 className="w-4 h-4" />
                   Eliminar Sesión
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (viewingSession) {
+                      handleDuplicateSession(viewingSession);
+                    }
+                  }}
+                  className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs rounded-xl transition-colors cursor-pointer flex items-center gap-1.5 border border-indigo-200"
+                >
+                  <Copy className="w-4 h-4 text-indigo-600" />
+                  Duplicar Sesión
                 </button>
                 <button
                   type="button"

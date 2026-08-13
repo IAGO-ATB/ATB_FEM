@@ -110,7 +110,7 @@ CREATE POLICY "Eliminacion publica gym_individual_reports" ON gym_individual_rep
 export interface ExerciseItem {
   id: string;
   name: string;
-  stimulus: 'Fuerza' | 'Pliometría';
+  stimulus: 'Fuerza' | 'Pliometría' | 'Movilidad';
   muscleChain: 'Cadena Anterior' | 'Cadena Posterior' | 'Cadena Interna' | 'Cadena Externa' | 'CORE' | 'Tren Superior' | 'Mix';
   description?: string;
   videoType?: 'youtube' | 'file';
@@ -491,7 +491,7 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
   // Form states for New / Edit Exercise
   const [editingExerciseId, setEditingExerciseId] = useState<string | null>(null);
   const [exName, setExName] = useState('');
-  const [exStimulus, setExStimulus] = useState<'Fuerza' | 'Pliometría'>('Fuerza');
+  const [exStimulus, setExStimulus] = useState<'Fuerza' | 'Pliometría' | 'Movilidad'>('Fuerza');
   const [exMuscleChain, setExMuscleChain] = useState<ExerciseItem['muscleChain']>('Cadena Anterior');
   const [exDescription, setExDescription] = useState('');
   const [exVideoType, setExVideoType] = useState<'youtube' | 'file'>('youtube');
@@ -513,7 +513,7 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
   const handleOpenEditExerciseModal = (ex: ExerciseItem) => {
     setEditingExerciseId(ex.id);
     setExName(ex.name || '');
-    setExStimulus((ex.stimulus as 'Fuerza' | 'Pliometría') || 'Fuerza');
+    setExStimulus((ex.stimulus as 'Fuerza' | 'Pliometría' | 'Movilidad') || 'Fuerza');
     setExMuscleChain((ex.muscleChain || ex.category || 'Cadena Anterior') as any);
     setExDescription(ex.description || ex.notes || '');
     setExVideoType(ex.videoType || 'youtube');
@@ -555,6 +555,7 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
     : true;
 
   const [openMicrocycles, setOpenMicrocycles] = useState<Record<number, boolean>>({ 1: true });
+  const [openMacrocycles, setOpenMacrocycles] = useState<Record<number, boolean>>({ 1: true });
   const [activationExercises, setActivationExercises] = useState<SessionExerciseItem[]>([]);
   const [mainBlockExercises, setMainBlockExercises] = useState<SessionExerciseItem[]>([]);
   const [showAddPicker, setShowAddPicker] = useState<'activation' | 'main' | null>(null);
@@ -563,7 +564,7 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
   const [pickerChainFilter, setPickerChainFilter] = useState<string>('TODAS');
   const [recentlyAddedId, setRecentlyAddedId] = useState<string | null>(null);
 
-  const availableStimuli = ['TODOS', 'Fuerza', 'Pliometría'];
+  const availableStimuli = ['TODOS', 'Fuerza', 'Pliometría', 'Movilidad'];
   const availableChains = [
     'TODAS',
     'Cadena Anterior',
@@ -690,8 +691,20 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
 
     if (log.playerId) {
       setSessionPlayerId(log.playerId);
+    } else if (topMode === 'individual' && selectedPlayerForGym) {
+      setSessionPlayerId(selectedPlayerForGym.id);
+    } else if (selectedPlayerForGym) {
+      setSessionPlayerId(selectedPlayerForGym.id);
     } else if (players.length > 0) {
       setSessionPlayerId(players[0].id);
+    }
+
+    if (topMode === 'individual') {
+      if (log.playerId) {
+        setSelectedSessionPlayers([log.playerId]);
+      } else if (selectedPlayerForGym) {
+        setSelectedSessionPlayers([selectedPlayerForGym.id]);
+      }
     }
 
     setViewingSession(null);
@@ -740,10 +753,20 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
 
     if (log.playerId) {
       setSessionPlayerId(log.playerId);
+    } else if (topMode === 'individual' && selectedPlayerForGym) {
+      setSessionPlayerId(selectedPlayerForGym.id);
     } else if (selectedPlayerForGym) {
       setSessionPlayerId(selectedPlayerForGym.id);
     } else if (players.length > 0) {
       setSessionPlayerId(players[0].id);
+    }
+
+    if (topMode === 'individual') {
+      if (log.playerId) {
+        setSelectedSessionPlayers([log.playerId]);
+      } else if (selectedPlayerForGym) {
+        setSelectedSessionPlayers([selectedPlayerForGym.id]);
+      }
     }
 
     setViewingSession(null);
@@ -764,18 +787,30 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
         .order('created_at', { ascending: false })
         .then(({ data, error }) => {
           if (!error && data && data.length > 0) {
-            const loaded: ExerciseItem[] = data.map(item => ({
-              id: item.id,
-              name: item.name,
-              stimulus: item.stimulus,
-              muscleChain: item.muscle_chain,
-              description: item.description,
-              videoType: item.video_type,
-              videoUrl: item.video_url,
-              videoFileName: item.video_file_name,
-              category: item.muscle_chain,
-              muscleGroup: item.muscle_chain
-            }));
+            const loaded: ExerciseItem[] = data.map(item => {
+              const stimRaw = (item.stimulus || 'Fuerza').trim();
+              const nameRaw = item.name || '';
+              let stimulus: 'Fuerza' | 'Pliometría' | 'Movilidad' = 'Fuerza';
+              
+              if (stimRaw === 'Pliometría') {
+                stimulus = 'Pliometría';
+              } else if (stimRaw === 'Movilidad') {
+                stimulus = 'Movilidad';
+              }
+              
+              return {
+                id: item.id,
+                name: nameRaw,
+                stimulus,
+                muscleChain: item.muscle_chain,
+                description: item.description,
+                videoType: item.video_type,
+                videoUrl: item.video_url,
+                videoFileName: item.video_file_name,
+                category: item.muscle_chain,
+                muscleGroup: item.muscle_chain
+              };
+            });
             setExercises(loaded);
           }
         });
@@ -1141,80 +1176,301 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
     }
   };
 
-  const exportSessionToPDF = (session: GymSessionLog) => {
+  const exportSessionsToPDF = async (sessions: GymSessionLog[], macroTitle: string) => {
+    if (!sessions || sessions.length === 0) return;
+    
     try {
       const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
       
-      // Top header band
-      doc.setFillColor(15, 23, 42); // slate-900
-      doc.rect(0, 0, 210, 26, 'F');
-      
-      doc.setTextColor(255, 255, 255);
-      doc.setFontSize(14);
-      doc.setFont('helvetica', 'bold');
-      doc.text((session.routine || 'SESIÓN DE ENTRENAMIENTO').toUpperCase(), 14, 14);
-      
-      doc.setFontSize(8);
-      doc.setFont('helvetica', 'normal');
-      const sessionLabel = session.sessionType === 'group' ? 'SESIÓN GRUPAL' : 'SESIÓN INDIVIDUAL';
-      const teamLabel = selectedTeam?.name ? ` • ${selectedTeam.name.toUpperCase()}` : '';
-      doc.text(`REGISTRO DE GIMNASIO - ${sessionLabel}${teamLabel}`, 14, 21);
+      for (let sIdx = 0; sIdx < sessions.length; sIdx++) {
+        const session = sessions[sIdx];
+        if (sIdx > 0) doc.addPage();
+        
+        // Find player photo
+        const player = players.find(p => p.name === session.playerName);
+        let photoBase64 = '';
+        if (player?.image) {
+          try {
+            photoBase64 = await new Promise((resolve) => {
+              const img = new Image();
+              img.crossOrigin = 'Anonymous';
+              img.onload = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = img.width;
+                canvas.height = img.height;
+                const ctx = canvas.getContext('2d');
+                ctx?.drawImage(img, 0, 0);
+                resolve(canvas.toDataURL('image/png'));
+              };
+              img.onerror = () => resolve('');
+              img.src = player.image!;
+            });
+          } catch (e) {
+            console.error('Error loading player image for PDF:', e);
+          }
+        }
 
-      // Metadata card
+        let y = 10;
+
+        // Player Image and Metadata Box at the top
+        if (photoBase64) {
+          doc.addImage(photoBase64, 'PNG', 14, y, 35, 35);
+        } else {
+          doc.setDrawColor(226, 232, 240);
+          doc.roundedRect(14, y, 35, 35, 2, 2, 'D');
+          doc.setTextColor(148, 163, 184);
+          doc.setFontSize(8);
+          doc.text('SIN FOTO', 22, y + 18);
+        }
+
+        // Metadata Box (Top-Right of image)
+        doc.setFillColor(248, 250, 252); // slate-50
+        doc.setDrawColor(226, 232, 240); // slate-200
+        doc.roundedRect(55, y, 141, 35, 3, 3, 'FD');
+
+        doc.setTextColor(30, 41, 59);
+        doc.setFontSize(10);
+        
+        const formattedDate = session.date && session.date.includes('-')
+          ? session.date.split('-').reverse().join('/')
+          : session.date || '-';
+
+        // Row 1: Session Number (Routine) & Microcycle
+        doc.setFont('helvetica', 'bold');
+        doc.text('SESIÓN:', 60, y + 10);
+        doc.setFont('helvetica', 'normal');
+        doc.text((session.routine || '-').toUpperCase(), 80, y + 10);
+
+        doc.setFont('helvetica', 'bold');
+        doc.text('MICROCICLO:', 130, y + 10);
+        doc.setFont('helvetica', 'normal');
+        doc.text((session.microcycle || '-').toUpperCase(), 165, y + 10);
+
+        // Row 2: Date & Player Name
+        doc.setFont('helvetica', 'bold');
+        doc.text('FECHA:', 60, y + 25);
+        doc.setFont('helvetica', 'normal');
+        doc.text(formattedDate, 80, y + 25);
+
+        doc.setFont('helvetica', 'bold');
+        doc.text('JUGADORA:', 130, y + 25);
+        doc.setFont('helvetica', 'normal');
+        doc.text((session.playerName || '-').toUpperCase(), 165, y + 25);
+
+        y = 55;
+
+        // Block A: Activation
+        if (session.activationExercises && session.activationExercises.length > 0) {
+          doc.setFontSize(10);
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(180, 83, 9); // amber-700
+          doc.text('BLOQUE A: ACTIVACIÓN', 14, y);
+          y += 3;
+
+          const activationTableData = session.activationExercises.map((item, idx) => {
+            const vUrl = item.videoUrl || item.exercise?.videoUrl || '';
+            return [
+              `${idx + 1}. ${item.exercise?.name || 'Ejercicio'}`,
+              `${item.sets || '-'}`,
+              `${item.reps || '-'}`,
+              `${item.load || '-'}`,
+              `${item.rest || '-'}`,
+              vUrl ? '' : '-'
+            ];
+          });
+
+          autoTable(doc, {
+            startY: y,
+            head: [['Ejercicio', 'Series', 'Reps', 'Carga', 'Descanso', 'Vídeo']],
+            body: activationTableData,
+            theme: 'grid',
+            headStyles: { fillColor: [245, 158, 11], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8, halign: 'center' },
+            bodyStyles: { fontSize: 8, textColor: [30, 41, 59] },
+            columnStyles: {
+              0: { halign: 'left' },
+              1: { halign: 'center', cellWidth: 20 },
+              2: { halign: 'center', cellWidth: 22 },
+              3: { halign: 'center', cellWidth: 22 },
+              4: { halign: 'center', cellWidth: 25 },
+              5: { halign: 'center', cellWidth: 25 }
+            },
+            margin: { left: 14, right: 14 },
+            styles: { cellPadding: 2.5 },
+            didDrawCell: (data) => {
+              if (data.section === 'body' && data.column.index === 5) {
+                const item = session.activationExercises?.[data.row.index];
+                const vUrl = item?.videoUrl || item?.exercise?.videoUrl;
+                if (vUrl) {
+                  const cx = data.cell.x + data.cell.width / 2;
+                  const cy = data.cell.y + data.cell.height / 2;
+                  doc.setFillColor(255, 0, 0);
+                  doc.roundedRect(cx - 7, cy - 3, 14, 6, 1.5, 1.5, 'F');
+                  doc.setFillColor(255, 255, 255);
+                  doc.triangle(cx - 1.5, cy - 1.8, cx + 2.2, cy, cx - 1.5, cy + 1.8, 'F');
+                  doc.link(data.cell.x, data.cell.y, data.cell.width, data.cell.height, { url: vUrl });
+                }
+              }
+            }
+          });
+
+          y = (doc as any).lastAutoTable.finalY + 8;
+        }
+
+        // Block B: Main Block
+        if (session.mainBlockExercises && session.mainBlockExercises.length > 0) {
+          if (y > 240) {
+            doc.addPage();
+            y = 20;
+          }
+
+          doc.setFontSize(10);
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(3, 105, 161); // sky-700
+          doc.text('BLOQUE B: BLOQUE PRINCIPAL', 14, y);
+          y += 3;
+
+          const mainTableData = session.mainBlockExercises.map((item, idx) => {
+            const vUrl = item.videoUrl || item.exercise?.videoUrl || '';
+            return [
+              `${idx + 1}. ${item.exercise?.name || 'Ejercicio'}`,
+              `${item.sets || '-'}`,
+              `${item.reps || '-'}`,
+              `${item.load || '-'}`,
+              `${item.rest || '-'}`,
+              vUrl ? '' : '-'
+            ];
+          });
+
+          autoTable(doc, {
+            startY: y,
+            head: [['Ejercicio', 'Series', 'Reps', 'Carga', 'Descanso', 'Vídeo']],
+            body: mainTableData,
+            theme: 'grid',
+            headStyles: { fillColor: [2, 132, 199], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8, halign: 'center' },
+            bodyStyles: { fontSize: 8, textColor: [30, 41, 59] },
+            columnStyles: {
+              0: { halign: 'left' },
+              1: { halign: 'center', cellWidth: 20 },
+              2: { halign: 'center', cellWidth: 22 },
+              3: { halign: 'center', cellWidth: 22 },
+              4: { halign: 'center', cellWidth: 25 },
+              5: { halign: 'center', cellWidth: 25 }
+            },
+            margin: { left: 14, right: 14 },
+            styles: { cellPadding: 2.5 },
+            didDrawCell: (data) => {
+              if (data.section === 'body' && data.column.index === 5) {
+                const item = session.mainBlockExercises?.[data.row.index];
+                const vUrl = item?.videoUrl || item?.exercise?.videoUrl;
+                if (vUrl) {
+                  const cx = data.cell.x + data.cell.width / 2;
+                  const cy = data.cell.y + data.cell.height / 2;
+                  doc.setFillColor(255, 0, 0);
+                  doc.roundedRect(cx - 7, cy - 3, 14, 6, 1.5, 1.5, 'F');
+                  doc.setFillColor(255, 255, 255);
+                  doc.triangle(cx - 1.5, cy - 1.8, cx + 2.2, cy, cx - 1.5, cy + 1.8, 'F');
+                  doc.link(data.cell.x, data.cell.y, data.cell.width, data.cell.height, { url: vUrl });
+                }
+              }
+            }
+          });
+
+          y = (doc as any).lastAutoTable.finalY + 8;
+        }
+
+        // Footer for each page
+        const pageCount = doc.getNumberOfPages();
+        doc.setFontSize(8);
+        doc.setTextColor(148, 163, 184);
+        doc.text(`Documento generado el ${new Date().toLocaleDateString('es-ES')} - Sesión ${sIdx + 1} de ${sessions.length}`, 14, 287);
+      }
+
+      const playerName = sessions[0]?.playerName || 'Jugadora';
+      const cleanFileName = `${playerName}_${macroTitle}`.replace(/[^a-zA-Z0-9_\-]/g, '_');
+      doc.save(`${cleanFileName}.pdf`);
+    } catch (err) {
+      console.error('Error al exportar PDF:', err);
+      alert('Hubo un problema al generar el archivo PDF.');
+    }
+  };
+
+  const exportSessionToPDF = async (session: GymSessionLog) => {
+    try {
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      
+      // Find player photo
+      const player = players.find(p => p.name === session.playerName);
+      let photoBase64 = '';
+      if (player?.image) {
+        try {
+          photoBase64 = await new Promise((resolve) => {
+            const img = new Image();
+            img.crossOrigin = 'Anonymous';
+            img.onload = () => {
+              const canvas = document.createElement('canvas');
+              canvas.width = img.width;
+              canvas.height = img.height;
+              const ctx = canvas.getContext('2d');
+              ctx?.drawImage(img, 0, 0);
+              resolve(canvas.toDataURL('image/png'));
+            };
+            img.onerror = () => resolve('');
+            img.src = player.image!;
+          });
+        } catch (e) {
+          console.error('Error loading player image for PDF:', e);
+        }
+      }
+
+      let y = 10;
+
+      // Player Image and Metadata Box at the top
+      if (photoBase64) {
+        doc.addImage(photoBase64, 'PNG', 14, y, 35, 35);
+      } else {
+        // Placeholder or just skip
+        doc.setDrawColor(226, 232, 240);
+        doc.roundedRect(14, y, 35, 35, 2, 2, 'D');
+        doc.setTextColor(148, 163, 184);
+        doc.setFontSize(8);
+        doc.text('SIN FOTO', 22, y + 18);
+      }
+
+      // Metadata Box (Top-Right of image)
       doc.setFillColor(248, 250, 252); // slate-50
       doc.setDrawColor(226, 232, 240); // slate-200
-      doc.roundedRect(14, 32, 182, 22, 3, 3, 'FD');
+      doc.roundedRect(55, y, 141, 35, 3, 3, 'FD');
 
       doc.setTextColor(30, 41, 59);
-      doc.setFontSize(9);
+      doc.setFontSize(10);
       
       const formattedDate = session.date && session.date.includes('-')
         ? session.date.split('-').reverse().join('/')
         : session.date || '-';
 
+      // Row 1: Session Number (Routine) & Microcycle
       doc.setFont('helvetica', 'bold');
-      doc.text('FECHA:', 18, 40);
+      doc.text('SESIÓN:', 60, y + 10);
       doc.setFont('helvetica', 'normal');
-      doc.text(formattedDate, 32, 40);
+      doc.text((session.routine || '-').toUpperCase(), 80, y + 10);
 
       doc.setFont('helvetica', 'bold');
-      doc.text('ASIGNACIÓN:', 70, 40);
+      doc.text('MICROCICLO:', 130, y + 10);
       doc.setFont('helvetica', 'normal');
-      doc.text(session.playerName || 'Grupo', 95, 40);
+      doc.text((session.microcycle || '-').toUpperCase(), 165, y + 10);
 
-      if (session.mesocycle) {
-        doc.setFont('helvetica', 'bold');
-        doc.text('MESOCICLO:', 140, 40);
-        doc.setFont('helvetica', 'normal');
-        doc.text(session.mesocycle, 163, 40);
-      }
+      // Row 2: Date & Player Name
+      doc.setFont('helvetica', 'bold');
+      doc.text('FECHA:', 60, y + 25);
+      doc.setFont('helvetica', 'normal');
+      doc.text(formattedDate, 80, y + 25);
 
-      if (session.microcycle) {
-        doc.setFont('helvetica', 'bold');
-        doc.text('MICROCICLO:', 18, 48);
-        doc.setFont('helvetica', 'normal');
-        doc.text(session.microcycle, 40, 48);
-      }
+      doc.setFont('helvetica', 'bold');
+      doc.text('JUGADORA:', 130, y + 25);
+      doc.setFont('helvetica', 'normal');
+      doc.text((session.playerName || '-').toUpperCase(), 165, y + 25);
 
-      let y = 60;
-
-      // Participating players list (omit in group session PDF export)
-      const isGroupSession = session.sessionType === 'group' || !session.playerName || session.playerName === 'Grupo';
-      if (!isGroupSession && session.participatingPlayers && session.participatingPlayers.length > 0) {
-        doc.setFontSize(9);
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor(15, 23, 42);
-        doc.text(`JUGADORAS PARTICIPANTES (${session.participatingPlayers.length}):`, 14, y);
-        y += 5;
-
-        doc.setFontSize(8);
-        doc.setFont('helvetica', 'normal');
-        doc.setTextColor(51, 65, 85);
-        const playersText = session.participatingPlayers.join(', ');
-        const splitText = doc.splitTextToSize(playersText, 182);
-        doc.text(splitText, 14, y);
-        y += (splitText.length * 4) + 6;
-      }
+      y = 55;
 
       // Block A: Activation
       if (session.activationExercises && session.activationExercises.length > 0) {
@@ -1868,7 +2124,7 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
                 </div>
 
                 {/* Logs History for this Player */}
-                <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-3">
+                <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-4">
                   <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
                     <Clock className="w-4 h-4 text-sky-500" />
                     Historial de Sesiones de Gimnasio
@@ -1889,66 +2145,135 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
                       );
                     }
 
+                    // Group by Macrocycle
+                    const isSessionInMacrocycle = (log: GymSessionLog, macroNum: number): boolean => {
+                      if (!log.macrocycle) return macroNum === 1;
+                      const raw = log.macrocycle.toUpperCase().trim();
+                      return raw.includes(`MACROCICLO ${macroNum}`) || raw.includes(`MACROCICLO${macroNum}`) || raw === String(macroNum);
+                    };
+
+                    const toggleMacrocycle = (macroNum: number) => {
+                      setOpenMacrocycles(prev => ({
+                        ...prev,
+                        [macroNum]: !prev[macroNum]
+                      }));
+                    };
+
                     return (
-                      <div className="space-y-2">
-                        {playerLogs.map((log, idx) => (
-                          <div
-                            key={log.id || idx}
-                            onClick={() => setViewingSession(log)}
-                            className="p-3 bg-slate-50 hover:bg-sky-50/60 hover:border-sky-300 rounded-xl border border-slate-200/80 flex items-center justify-between text-xs gap-3 transition-all cursor-pointer group/item"
-                          >
-                            <div>
-                              <span className="font-bold text-slate-900 block group-hover/item:text-sky-700 transition-colors">
-                                {log.routine}
-                              </span>
-                              <span className="text-[10px] text-slate-500">
-                                {log.date && log.date.includes('-') ? log.date.split('-').reverse().join('/') : log.date} — {log.weight}
-                              </span>
+                      <div className="space-y-3">
+                        {Array.from({ length: 10 }, (_, i) => i + 1).map((macroNum) => {
+                          const macroLogs = playerLogs
+                            .filter(log => isSessionInMacrocycle(log, macroNum))
+                            .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+                          if (macroLogs.length === 0) return null;
+                          
+                          const isOpen = !!openMacrocycles[macroNum];
+
+                          return (
+                            <div key={macroNum} className="border border-slate-200 rounded-2xl overflow-hidden shadow-2xs transition-all">
+                              <div className={`flex items-center justify-between p-3 cursor-pointer transition-colors ${
+                                isOpen ? 'bg-sky-50/50 border-b border-sky-100' : 'bg-slate-50 hover:bg-slate-100'
+                              }`} onClick={() => toggleMacrocycle(macroNum)}>
+                                <div className="flex items-center gap-3">
+                                  <div className={`p-2 rounded-xl ${isOpen ? 'bg-sky-500 text-white' : 'bg-slate-200 text-slate-500'}`}>
+                                    <Folder className="w-4 h-4" />
+                                  </div>
+                                  <div>
+                                    <span className="text-xs font-black text-slate-900 uppercase">MACROCICLO {macroNum}</span>
+                                    <span className="text-[10px] text-slate-500 block">{macroLogs.length} {macroLogs.length === 1 ? 'sesión' : 'sesiones'}</span>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      exportSessionsToPDF(macroLogs, `MACROCICLO ${macroNum}`);
+                                    }}
+                                    className="px-3 py-1 bg-white hover:bg-sky-500 hover:text-white text-sky-600 font-bold text-[10px] rounded-lg border border-sky-200 shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                                  >
+                                    <Download className="w-3 h-3" />
+                                    Descargar PDF
+                                  </button>
+                                  {isOpen ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+                                </div>
+                              </div>
+
+                              <AnimatePresence>
+                                {isOpen && (
+                                  <motion.div
+                                    initial={{ height: 0, opacity: 0 }}
+                                    animate={{ height: 'auto', opacity: 1 }}
+                                    exit={{ height: 0, opacity: 0 }}
+                                    className="overflow-hidden bg-white"
+                                  >
+                                    <div className="p-3 space-y-2">
+                                      {macroLogs.map((log, idx) => (
+                                        <div
+                                          key={log.id || idx}
+                                          onClick={() => setViewingSession(log)}
+                                          className="p-3 bg-slate-50 hover:bg-sky-50/60 hover:border-sky-300 rounded-xl border border-slate-200/80 flex items-center justify-between text-xs gap-3 transition-all cursor-pointer group/item"
+                                        >
+                                          <div>
+                                            <span className="font-bold text-slate-900 block group-hover/item:text-sky-700 transition-colors">
+                                              {log.routine}
+                                            </span>
+                                            <span className="text-[10px] text-slate-500">
+                                              {log.date && log.date.includes('-') ? log.date.split('-').reverse().join('/') : log.date} — {log.weight || '—'}
+                                              {log.microcycle ? ` • ${log.microcycle}` : ''}
+                                            </span>
+                                          </div>
+                                          <div className="flex items-center gap-2">
+                                            <span className="px-2.5 py-1 bg-sky-50 hover:bg-sky-100 text-sky-700 font-extrabold rounded-lg text-xs border border-sky-200/80 flex items-center gap-1 transition-colors">
+                                              <ExternalLink className="w-3.5 h-3.5" />
+                                              Ver
+                                            </span>
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                e.preventDefault();
+                                                handleDuplicateSession(log);
+                                              }}
+                                              className="p-1 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
+                                              title="Duplicar sesión"
+                                            >
+                                              <Copy className="w-3.5 h-3.5" />
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                e.preventDefault();
+                                                handleOpenEditSessionModal(log);
+                                              }}
+                                              className="p-1 text-amber-600 hover:text-amber-800 hover:bg-amber-50 rounded-lg transition-colors cursor-pointer"
+                                              title="Editar sesión"
+                                            >
+                                              <Edit3 className="w-3.5 h-3.5" />
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                e.preventDefault();
+                                                setSessionToDelete(log);
+                                              }}
+                                              className="p-1 text-slate-400 hover:text-rose-600 rounded-lg transition-colors cursor-pointer"
+                                              title="Eliminar registro"
+                                            >
+                                              <Trash2 className="w-3.5 h-3.5" />
+                                            </button>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </motion.div>
+                                )}
+                              </AnimatePresence>
                             </div>
-                            <div className="flex items-center gap-2">
-                              <span className="px-2.5 py-1 bg-sky-50 hover:bg-sky-100 text-sky-700 font-extrabold rounded-lg text-xs border border-sky-200/80 flex items-center gap-1 transition-colors">
-                                <ExternalLink className="w-3.5 h-3.5" />
-                                Ver
-                              </span>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  e.preventDefault();
-                                  handleDuplicateSession(log);
-                                }}
-                                className="p-1 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
-                                title="Duplicar sesión"
-                              >
-                                <Copy className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  e.preventDefault();
-                                  handleOpenEditSessionModal(log);
-                                }}
-                                className="p-1 text-amber-600 hover:text-amber-800 hover:bg-amber-50 rounded-lg transition-colors cursor-pointer"
-                                title="Editar sesión"
-                              >
-                                <Edit3 className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  e.preventDefault();
-                                  setSessionToDelete(log);
-                                }}
-                                className="p-1 text-slate-400 hover:text-rose-600 rounded-lg transition-colors cursor-pointer"
-                                title="Eliminar registro"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     );
                   })()}
@@ -2106,6 +2431,7 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
                   <option value="" className="bg-slate-800 text-white">-- Estímulo --</option>
                   <option value="Fuerza" className="bg-slate-800 text-white">Fuerza</option>
                   <option value="Pliometría" className="bg-slate-800 text-white">Pliometría</option>
+                  <option value="Movilidad" className="bg-slate-800 text-white">Movilidad</option>
                   <option value="TODOS" className="bg-slate-800 text-white">Todos los Estímulos</option>
                 </select>
               </div>
@@ -2185,7 +2511,7 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
                           ? 'bg-purple-100 text-purple-800 border border-purple-200'
                           : 'bg-sky-100 text-sky-800 border border-sky-200'
                       }`}>
-                        {stimulus}
+                        {stimulus === 'Pliometría' ? 'Pliometría' : (stimulus === 'Fuerza' ? 'Fuerza' : (stimulus === 'Movilidad' ? 'Movilidad' : stimulus))}
                       </span>
                       <span className="text-[10px] font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200">
                         {chain}
@@ -2271,7 +2597,7 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
                               ? 'bg-purple-100 text-purple-800 border border-purple-200'
                               : 'bg-sky-100 text-sky-800 border border-sky-200'
                           }`}>
-                            Estímulo: {stimulus}
+                            Estímulo: {stimulus === 'Pliometría' ? 'Pliometría' : (stimulus === 'Fuerza' ? 'Fuerza' : (stimulus === 'Movilidad' ? 'Movilidad' : stimulus))}
                           </span>
                           <span className="text-[10px] font-bold text-slate-700 bg-slate-100 px-2.5 py-0.5 rounded-full border border-slate-200">
                             {chain}
@@ -2432,6 +2758,18 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
                     >
                       <Activity className="w-3.5 h-3.5" />
                       Pliometría
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setExStimulus('Movilidad')}
+                      className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold border transition-all flex items-center justify-center gap-2 ${
+                        exStimulus === 'Movilidad'
+                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      Movilidad
                     </button>
                   </div>
                 </div>
@@ -2629,8 +2967,27 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
                       />
                     </div>
 
-                    {/* Asignar Jugadora Principal (solo en modo individual) - HIDE if we already have it in state from Vista 2 */}
-                    {topMode === 'grupo' ? null : null}
+                    {/* Asignar Jugadora Principal (solo en modo individual) */}
+                    {topMode === 'individual' && (
+                      <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3.5 py-1.5 rounded-full text-xs font-bold text-slate-700">
+                        <User className="w-3.5 h-3.5 text-sky-500 shrink-0" />
+                        <span className="whitespace-nowrap">Jugadora:</span>
+                        <select
+                          value={sessionPlayerId}
+                          onChange={(e) => {
+                            setSessionPlayerId(e.target.value);
+                            setSelectedSessionPlayers([e.target.value]);
+                          }}
+                          className="bg-white border border-slate-200 text-slate-900 font-extrabold px-2.5 py-1 rounded-lg outline-none cursor-pointer text-xs"
+                        >
+                          {players.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.nombre ? `${p.nombre} ${p.apellidos || ''}` : p.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
 
                     {/* Para FEMENINO A: TIPO (ST1, ST2-I, ST2-II, ST3, TREN SUPERIOR, CORE, PRIMING, REGENERATIVA, ESTRUCTURAL, COMBINADA). Para otras plantillas: Mesociclo */}
                     {isFemeninoA && topMode === 'grupo' ? (
@@ -3533,7 +3890,7 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
                             : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
                         }`}
                       >
-                        {st}
+                        {st === 'Pliometría' ? 'Pliometría' : (st === 'Fuerza' ? 'Fuerza' : (st === 'Movilidad' ? 'Movilidad' : (st === 'TODOS' ? 'Todos' : st)))}
                       </button>
                     ))}
                   </div>
@@ -3599,7 +3956,7 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
                         </h4>
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="bg-sky-50 text-sky-700 text-[9px] font-black px-2 py-0.5 rounded-md uppercase border border-sky-100">
-                            {ex.stimulus || 'FUERZA'}
+                            {ex.stimulus === 'Pliometría' ? 'Pliometría' : (ex.stimulus === 'Fuerza' ? 'Fuerza' : (ex.stimulus === 'Movilidad' ? 'Movilidad' : (ex.stimulus || 'Fuerza')))}
                           </span>
                           <span className="bg-slate-100 text-slate-600 text-[9px] font-black px-2 py-0.5 rounded-md uppercase border border-slate-200">
                             {formatMuscleChainBadge(ex.muscleChain)}

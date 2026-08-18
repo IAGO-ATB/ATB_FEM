@@ -462,15 +462,30 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
           const { data, error } = await supabase
             .from('players')
             .select('*')
-            .eq('team_id', selectedTeam.id)
             .order('number', { ascending: true });
 
           if (!error && data && data.length > 0) {
-            loaded = data.map((p: any) => ({
-              ...p,
-              secondPosition: p.secondPosition || p.second_position || p.segunda_posicion || p.segunda_posicion_especifica || p.secondposition || '',
-              teamId: p.team_id || p.teamid
-            }));
+            // Filter by team_id or keep all if team matches
+            const filteredData = data.filter((p: any) => {
+              const pTeamId = p.team_id || p.teamid || p.team;
+              if (!pTeamId) return true;
+              return String(pTeamId).toLowerCase() === String(selectedTeam.id).toLowerCase() ||
+                     String(pTeamId).toLowerCase() === String(selectedTeam.name).toLowerCase();
+            });
+
+            const sourceData = filteredData.length > 0 ? filteredData : data;
+
+            loaded = sourceData.map((p: any) => {
+              const pName = p.name || `${p.nombre || ''} ${p.apellidos || ''}`.trim() || 'Jugadora';
+              const pImage = p.image || p.foto || p.photo || p.avatar || p.image_url || p.foto_url || '';
+              return {
+                ...p,
+                name: pName,
+                image: pImage,
+                secondPosition: p.secondPosition || p.second_position || p.segunda_posicion || p.segunda_posicion_especifica || p.secondposition || '',
+                teamId: p.team_id || p.teamid
+              };
+            });
           }
         } catch (e) {}
       }
@@ -817,7 +832,7 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
 
       const fetchAllGymLogs = async () => {
         const allLogs: GymSessionLog[] = [];
-        const seenIds = new Set<string>();
+        const seenSourceKeys = new Set<string>();
 
         const mapItemToLog = (item: any, type: 'group' | 'individual'): GymSessionLog => {
           let parsed: any = null;
@@ -828,17 +843,17 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
             } catch (e) {}
           }
           return {
-            id: item.id,
-            playerId: item.player_id,
-            playerName: item.player_name || (type === 'group' ? 'Grupo' : 'Jugadora'),
-            teamId: item.team_id || parsed?.teamId,
-            teamName: item.team_name || item.team || parsed?.teamName,
+            id: item.id !== undefined && item.id !== null ? String(item.id) : `log-${Date.now()}-${Math.random()}`,
+            playerId: item.player_id || item.playerId || parsed?.playerId || parsed?.player_id,
+            playerName: item.player_name || item.playerName || parsed?.playerName || parsed?.player_name || (type === 'group' ? 'Grupo' : 'Jugadora'),
+            teamId: item.team_id || item.teamId || parsed?.teamId || parsed?.team_id,
+            teamName: item.team_name || item.teamName || item.team || parsed?.teamName || parsed?.team_name,
             routine: item.routine_title || item.routine || item.routine_name || 'Sesión de Entrenamiento',
             rpe: item.rpe || 8,
             weight: item.weight || '',
             date: item.session_date || item.date || (item.created_at ? new Date(item.created_at).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]),
-            mesocycle: parsed?.mesocycle,
-            microcycle: item.microcycle || parsed?.microcycle,
+            mesocycle: item.mesocycle || item.meso_cycle || parsed?.mesocycle || parsed?.meso_cycle,
+            microcycle: item.microcycle || item.micro_cycle || parsed?.microcycle || parsed?.micro_cycle,
             macrocycle: item.macrocycle || item.macro_cycle || parsed?.macrocycle || parsed?.macro_cycle,
             sessionTypeCategory: item.session_type_category || item.tipo || item.type || parsed?.sessionTypeCategory || parsed?.tipo || parsed?.type,
             activationExercises: parsed?.activationExercises || [],
@@ -851,11 +866,17 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
 
         // 1. Fetch group sessions for Femenino A
         try {
-          const { data: groupFemAData } = await supabase.from('gym_group_sessions_femenino_a').select('*').order('created_at', { ascending: false }).limit(50);
+          const { data: groupFemAData } = await supabase
+            .from('gym_group_sessions_femenino_a')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(1000);
+
           if (groupFemAData) {
             groupFemAData.forEach(item => {
-              if (item.id && !seenIds.has(item.id)) {
-                seenIds.add(item.id);
+              const key = `fem_a_${item.id}`;
+              if (item.id !== undefined && !seenSourceKeys.has(key)) {
+                seenSourceKeys.add(key);
                 allLogs.push(mapItemToLog(item, 'group'));
               }
             });
@@ -864,39 +885,69 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
 
         // 2. Fetch group sessions
         try {
-          const { data: groupData } = await supabase.from('gym_group_sessions').select('*').order('created_at', { ascending: false }).limit(50);
+          const { data: groupData } = await supabase
+            .from('gym_group_sessions')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(1000);
+
           if (groupData) {
             groupData.forEach(item => {
-              if (item.id && !seenIds.has(item.id)) {
-                seenIds.add(item.id);
+              const key = `group_${item.id}`;
+              if (item.id !== undefined && !seenSourceKeys.has(key)) {
+                seenSourceKeys.add(key);
                 allLogs.push(mapItemToLog(item, 'group'));
               }
             });
           }
         } catch (e) {}
 
-        // 2. Fetch individual sessions
+        // 3. Fetch individual sessions
         try {
-          const { data: indData } = await supabase.from('gym_individual_sessions').select('*').order('created_at', { ascending: false }).limit(50);
+          const { data: indData } = await supabase
+            .from('gym_individual_sessions')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(1000);
+
           if (indData) {
             indData.forEach(item => {
-              if (item.id && !seenIds.has(item.id)) {
-                seenIds.add(item.id);
+              const key = `ind_${item.id}`;
+              if (item.id !== undefined && !seenSourceKeys.has(key)) {
+                seenSourceKeys.add(key);
                 allLogs.push(mapItemToLog(item, 'individual'));
               }
             });
           }
         } catch (e) {}
 
-        // 3. Fallback: fetch legacy gym_sessions table
+        // 4. Fallback: fetch legacy gym_sessions table (only adding items not already present)
         try {
-          const { data: legacyData } = await supabase.from('gym_sessions').select('*').order('created_at', { ascending: false }).limit(50);
+          const { data: legacyData } = await supabase
+            .from('gym_sessions')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(1000);
+
           if (legacyData) {
             legacyData.forEach(item => {
-              if (item.id && !seenIds.has(item.id)) {
-                seenIds.add(item.id);
-                const isGroup = !item.player_id || (item.player_name && (item.player_name.includes('Grupo') || item.player_name.includes('Jugadoras')));
-                allLogs.push(mapItemToLog(item, isGroup ? 'group' : 'individual'));
+              const key = `legacy_${item.id}`;
+              if (item.id !== undefined && !seenSourceKeys.has(key)) {
+                // Check if identical session already loaded from individual or group tables
+                const dateStr = item.session_date || item.date;
+                const routineStr = item.routine_title || item.routine;
+                const playerStr = item.player_id || item.player_name;
+                const isDuplicate = allLogs.some(existing => 
+                  (existing.date === dateStr) &&
+                  (existing.routine === routineStr) &&
+                  (existing.playerId === playerStr || existing.playerName === playerStr)
+                );
+
+                if (!isDuplicate) {
+                  seenSourceKeys.add(key);
+                  const isGroup = !item.player_id || (item.player_name && (item.player_name.includes('Grupo') || item.player_name.includes('Jugadoras')));
+                  allLogs.push(mapItemToLog(item, isGroup ? 'group' : 'individual'));
+                }
               }
             });
           }
@@ -1176,6 +1227,103 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
     }
   };
 
+  const normalizeStringForMatch = (str: string | undefined | null): string => {
+    if (!str) return '';
+    return str
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '') // remove accents / tildes
+      .toLowerCase()
+      .trim()
+      .replace(/\s+/g, ' ');
+  };
+
+  const getPlayerPhotoBase64 = async (session: GymSessionLog): Promise<string> => {
+    const normSessionPlayer = normalizeStringForMatch(session.playerName);
+    const sessionPlayerId = session.playerId ? String(session.playerId).trim() : '';
+
+    // 1. Try finding in players list by ID or various name permutations
+    let matchedPlayer = players.find(p => {
+      if (sessionPlayerId && p.id && String(p.id).trim() === sessionPlayerId) return true;
+      const pName = normalizeStringForMatch(p.name);
+      const pFull = normalizeStringForMatch(`${p.nombre || ''} ${p.apellidos || ''}`);
+      const pInv = normalizeStringForMatch(`${p.apellidos || ''} ${p.nombre || ''}`);
+      const pFirst = normalizeStringForMatch(p.nombre);
+      const pLast = normalizeStringForMatch(p.apellidos);
+
+      if (normSessionPlayer && normSessionPlayer !== 'jugadora' && normSessionPlayer !== 'grupo') {
+        if (pName && (pName === normSessionPlayer || pName.includes(normSessionPlayer) || normSessionPlayer.includes(pName))) return true;
+        if (pFull && (pFull === normSessionPlayer || pFull.includes(normSessionPlayer) || normSessionPlayer.includes(pFull))) return true;
+        if (pInv && (pInv === normSessionPlayer || pInv.includes(normSessionPlayer) || normSessionPlayer.includes(pInv))) return true;
+        if (pFirst && normSessionPlayer.split(' ').includes(pFirst)) return true;
+        if (pLast && normSessionPlayer.split(' ').includes(pLast)) return true;
+      }
+      return false;
+    });
+
+    // 2. Try selectedPlayerForGym if currently viewing this player's profile
+    if (!matchedPlayer && selectedPlayerForGym) {
+      const curName = normalizeStringForMatch(selectedPlayerForGym.name);
+      const curFull = normalizeStringForMatch(`${selectedPlayerForGym.nombre || ''} ${selectedPlayerForGym.apellidos || ''}`);
+      if (
+        (sessionPlayerId && String(selectedPlayerForGym.id).trim() === sessionPlayerId) ||
+        (normSessionPlayer && (curName === normSessionPlayer || curFull === normSessionPlayer || normSessionPlayer.includes(curName) || curName.includes(normSessionPlayer))) ||
+        (!normSessionPlayer || normSessionPlayer === 'jugadora')
+      ) {
+        matchedPlayer = selectedPlayerForGym;
+      }
+    }
+
+    const rawImg = (matchedPlayer as any)?.image || 
+                   (matchedPlayer as any)?.foto || 
+                   (matchedPlayer as any)?.photo || 
+                   (matchedPlayer as any)?.avatar || 
+                   (matchedPlayer as any)?.image_url || 
+                   (matchedPlayer as any)?.foto_url || 
+                   (selectedPlayerForGym as any)?.image || '';
+
+    if (!rawImg) return '';
+
+    // If it's already a base64 data URL
+    if (typeof rawImg === 'string' && rawImg.startsWith('data:image/')) {
+      return rawImg;
+    }
+
+    // Try fetch + blob first
+    try {
+      const res = await fetch(rawImg, { mode: 'cors' });
+      if (res.ok) {
+        const blob = await res.blob();
+        const b64 = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve((reader.result as string) || '');
+          reader.onerror = () => resolve('');
+          reader.readAsDataURL(blob);
+        });
+        if (b64) return b64;
+      }
+    } catch (e) {}
+
+    // Fallback: Image element with canvas
+    return await new Promise<string>((resolve) => {
+      const img = new Image();
+      img.crossOrigin = 'Anonymous';
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = img.naturalWidth || img.width;
+          canvas.height = img.naturalHeight || img.height;
+          const ctx = canvas.getContext('2d');
+          ctx?.drawImage(img, 0, 0);
+          resolve(canvas.toDataURL('image/png'));
+        } catch (e) {
+          resolve('');
+        }
+      };
+      img.onerror = () => resolve('');
+      img.src = rawImg;
+    });
+  };
+
   const exportSessionsToPDF = async (sessions: GymSessionLog[], macroTitle: string) => {
     if (!sessions || sessions.length === 0) return;
     
@@ -1186,29 +1334,8 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
         const session = sessions[sIdx];
         if (sIdx > 0) doc.addPage();
         
-        // Find player photo
-        const player = players.find(p => p.name === session.playerName);
-        let photoBase64 = '';
-        if (player?.image) {
-          try {
-            photoBase64 = await new Promise((resolve) => {
-              const img = new Image();
-              img.crossOrigin = 'Anonymous';
-              img.onload = () => {
-                const canvas = document.createElement('canvas');
-                canvas.width = img.width;
-                canvas.height = img.height;
-                const ctx = canvas.getContext('2d');
-                ctx?.drawImage(img, 0, 0);
-                resolve(canvas.toDataURL('image/png'));
-              };
-              img.onerror = () => resolve('');
-              img.src = player.image!;
-            });
-          } catch (e) {
-            console.error('Error loading player image for PDF:', e);
-          }
-        }
+        // Find player photo with bulletproof resolver
+        const photoBase64 = await getPlayerPhotoBase64(session);
 
         let y = 10;
 
@@ -1398,29 +1525,8 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
     try {
       const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
       
-      // Find player photo
-      const player = players.find(p => p.name === session.playerName);
-      let photoBase64 = '';
-      if (player?.image) {
-        try {
-          photoBase64 = await new Promise((resolve) => {
-            const img = new Image();
-            img.crossOrigin = 'Anonymous';
-            img.onload = () => {
-              const canvas = document.createElement('canvas');
-              canvas.width = img.width;
-              canvas.height = img.height;
-              const ctx = canvas.getContext('2d');
-              ctx?.drawImage(img, 0, 0);
-              resolve(canvas.toDataURL('image/png'));
-            };
-            img.onerror = () => resolve('');
-            img.src = player.image!;
-          });
-        } catch (e) {
-          console.error('Error loading player image for PDF:', e);
-        }
-      }
+      // Find player photo with bulletproof resolver
+      const photoBase64 = await getPlayerPhotoBase64(session);
 
       let y = 10;
 
@@ -2131,11 +2237,39 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
                   </h4>
 
                   {(() => {
-                    const pName = selectedPlayerForGym.nombre ? `${selectedPlayerForGym.nombre} ${selectedPlayerForGym.apellidos || ''}` : selectedPlayerForGym.name;
-                    const playerLogs = rpeLogs.filter(log => 
-                      (log.playerId && log.playerId === selectedPlayerForGym.id) ||
-                      (log.playerName && log.playerName.toLowerCase() === pName.toLowerCase())
-                    );
+                    const normSelId = String(selectedPlayerForGym.id || '').trim();
+                    const selNames = [
+                      selectedPlayerForGym.name,
+                      selectedPlayerForGym.nombre,
+                      `${selectedPlayerForGym.nombre || ''} ${selectedPlayerForGym.apellidos || ''}`,
+                      `${selectedPlayerForGym.apellidos || ''} ${selectedPlayerForGym.nombre || ''}`
+                    ].map(normalizeStringForMatch).filter(Boolean);
+
+                    const playerLogs = rpeLogs.filter(log => {
+                      // 1. Match by ID
+                      if (log.playerId && String(log.playerId).trim() === normSelId) return true;
+                      
+                      // 2. Match by Player Name
+                      const normLogPlayer = normalizeStringForMatch(log.playerName);
+                      if (normLogPlayer && normLogPlayer !== 'jugadora' && normLogPlayer !== 'grupo') {
+                        if (selNames.some(sn => sn === normLogPlayer || sn.includes(normLogPlayer) || normLogPlayer.includes(sn))) {
+                          return true;
+                        }
+                      }
+
+                      // 3. Match by participating players list (if individual session where player is included)
+                      if (log.participatingPlayers && Array.isArray(log.participatingPlayers)) {
+                        const isPart = log.participatingPlayers.some(p => {
+                          const np = normalizeStringForMatch(p);
+                          return selNames.some(sn => sn === np || sn.includes(np) || np.includes(sn));
+                        });
+                        if (isPart) return true;
+                      }
+
+                      return false;
+                    });
+
+                    const pName = selectedPlayerForGym.nombre ? `${selectedPlayerForGym.nombre} ${selectedPlayerForGym.apellidos || ''}`.trim() : selectedPlayerForGym.name;
 
                     if (playerLogs.length === 0) {
                       return (
@@ -2148,16 +2282,35 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
                     // Group by Macrocycle
                     const isSessionInMacrocycle = (log: GymSessionLog, macroNum: number): boolean => {
                       if (!log.macrocycle) return macroNum === 1;
-                      const raw = log.macrocycle.toUpperCase().trim();
-                      return raw.includes(`MACROCICLO ${macroNum}`) || raw.includes(`MACROCICLO${macroNum}`) || raw === String(macroNum);
+                      const raw = normalizeStringForMatch(log.macrocycle);
+                      if (
+                        raw.includes(`macrociclo ${macroNum}`) ||
+                        raw.includes(`macrociclo${macroNum}`) ||
+                        raw.includes(`macro ${macroNum}`) ||
+                        raw.includes(`macro${macroNum}`) ||
+                        raw.includes(`m${macroNum}`) ||
+                        raw === String(macroNum)
+                      ) {
+                        return true;
+                      }
+                      const numbers = raw.match(/\d+/g);
+                      if (numbers && numbers.includes(String(macroNum))) {
+                        return true;
+                      }
+                      return false;
                     };
 
-                    const toggleMacrocycle = (macroNum: number) => {
+                    const toggleMacrocycle = (macroNum: number | string) => {
                       setOpenMacrocycles(prev => ({
                         ...prev,
                         [macroNum]: !prev[macroNum]
                       }));
                     };
+
+                    // Sessions that don't match Macro 1-10
+                    const unassignedLogs = playerLogs.filter(log => {
+                      return !Array.from({ length: 10 }, (_, i) => i + 1).some(mNum => isSessionInMacrocycle(log, mNum));
+                    });
 
                     return (
                       <div className="space-y-3">
@@ -2274,6 +2427,114 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
                             </div>
                           );
                         })}
+
+                        {unassignedLogs.length > 0 && (
+                          <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-2xs transition-all">
+                            <div
+                              className={`flex items-center justify-between p-3 cursor-pointer transition-colors ${
+                                openMacrocycles['other'] ? 'bg-amber-50/50 border-b border-amber-100' : 'bg-slate-50 hover:bg-slate-100'
+                              }`}
+                              onClick={() => toggleMacrocycle('other')}
+                            >
+                              <div className="flex items-center gap-3">
+                                <div className={`p-2 rounded-xl ${openMacrocycles['other'] ? 'bg-amber-500 text-white' : 'bg-slate-200 text-slate-500'}`}>
+                                  <Folder className="w-4 h-4" />
+                                </div>
+                                <div>
+                                  <span className="text-xs font-black text-slate-900 uppercase">OTRAS SESIONES</span>
+                                  <span className="text-[10px] text-slate-500 block">{unassignedLogs.length} {unassignedLogs.length === 1 ? 'sesión' : 'sesiones'}</span>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    exportSessionsToPDF(unassignedLogs, 'OTRAS SESIONES');
+                                  }}
+                                  className="px-3 py-1 bg-white hover:bg-sky-500 hover:text-white text-sky-600 font-bold text-[10px] rounded-lg border border-sky-200 shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                                >
+                                  <Download className="w-3 h-3" />
+                                  Descargar PDF
+                                </button>
+                                {openMacrocycles['other'] ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+                              </div>
+                            </div>
+
+                            <AnimatePresence>
+                              {openMacrocycles['other'] && (
+                                <motion.div
+                                  initial={{ height: 0, opacity: 0 }}
+                                  animate={{ height: 'auto', opacity: 1 }}
+                                  exit={{ height: 0, opacity: 0 }}
+                                  className="overflow-hidden bg-white"
+                                >
+                                  <div className="p-3 space-y-2">
+                                    {unassignedLogs.map((log, idx) => (
+                                      <div
+                                        key={log.id || idx}
+                                        onClick={() => setViewingSession(log)}
+                                        className="p-3 bg-slate-50 hover:bg-sky-50/60 hover:border-sky-300 rounded-xl border border-slate-200/80 flex items-center justify-between text-xs gap-3 transition-all cursor-pointer group/item"
+                                      >
+                                        <div>
+                                          <span className="font-bold text-slate-900 block group-hover/item:text-sky-700 transition-colors">
+                                            {log.routine}
+                                          </span>
+                                          <span className="text-[10px] text-slate-500">
+                                            {log.date && log.date.includes('-') ? log.date.split('-').reverse().join('/') : log.date} — {log.weight || '—'}
+                                            {log.microcycle ? ` • ${log.microcycle}` : ''}
+                                          </span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                          <span className="px-2.5 py-1 bg-sky-50 hover:bg-sky-100 text-sky-700 font-extrabold rounded-lg text-xs border border-sky-200/80 flex items-center gap-1 transition-colors">
+                                            <ExternalLink className="w-3.5 h-3.5" />
+                                            Ver
+                                          </span>
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              e.preventDefault();
+                                              handleDuplicateSession(log);
+                                            }}
+                                            className="p-1 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
+                                            title="Duplicar sesión"
+                                          >
+                                            <Copy className="w-3.5 h-3.5" />
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              e.preventDefault();
+                                              handleOpenEditSessionModal(log);
+                                            }}
+                                            className="p-1 text-amber-600 hover:text-amber-800 hover:bg-amber-50 rounded-lg transition-colors cursor-pointer"
+                                            title="Editar sesión"
+                                          >
+                                            <Edit3 className="w-3.5 h-3.5" />
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              e.preventDefault();
+                                              setSessionToDelete(log);
+                                            }}
+                                            className="p-1 text-slate-400 hover:text-rose-600 rounded-lg transition-colors cursor-pointer"
+                                            title="Eliminar registro"
+                                          >
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                          </button>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </motion.div>
+                              )}
+                            </AnimatePresence>
+                          </div>
+                        )}
                       </div>
                     );
                   })()}

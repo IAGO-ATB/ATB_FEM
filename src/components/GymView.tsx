@@ -842,10 +842,18 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
               parsed = typeof rawData === 'string' ? JSON.parse(rawData) : rawData;
             } catch (e) {}
           }
+
+          let finalSessionType: 'group' | 'individual' = type;
+          if (parsed?.sessionType === 'group' || parsed?.sessionType === 'individual') {
+            finalSessionType = parsed.sessionType;
+          } else if (item.session_type === 'group' || item.session_type === 'individual') {
+            finalSessionType = item.session_type;
+          }
+
           return {
             id: item.id !== undefined && item.id !== null ? String(item.id) : `log-${Date.now()}-${Math.random()}`,
             playerId: item.player_id || item.playerId || parsed?.playerId || parsed?.player_id,
-            playerName: item.player_name || item.playerName || parsed?.playerName || parsed?.player_name || (type === 'group' ? 'Grupo' : 'Jugadora'),
+            playerName: item.player_name || item.playerName || parsed?.playerName || parsed?.player_name || (finalSessionType === 'group' ? 'Grupo' : 'Jugadora'),
             teamId: item.team_id || item.teamId || parsed?.teamId || parsed?.team_id,
             teamName: item.team_name || item.teamName || item.team || parsed?.teamName || parsed?.team_name,
             routine: item.routine_title || item.routine || item.routine_name || 'Sesión de Entrenamiento',
@@ -860,7 +868,7 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
             mainBlockExercises: parsed?.mainBlockExercises || [],
             participatingPlayers: parsed?.participatingPlayers || [],
             details: rawData,
-            sessionType: type
+            sessionType: finalSessionType
           };
         };
 
@@ -1842,7 +1850,12 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
             const teamPlayerNames = new Set(players.map(p => (p.nombre ? `${p.nombre} ${p.apellidos || ''}` : p.name).toLowerCase().trim()));
 
             const groupLogs = rpeLogs.filter(log => {
-              if (log.sessionType && log.sessionType !== 'group') return false;
+              // Strictly exclude individual sessions
+              if (log.sessionType === 'individual') return false;
+              if (log.playerId && !log.playerName?.toLowerCase().includes('grupo') && !log.playerName?.toLowerCase().includes('plantilla') && !log.playerName?.toLowerCase().includes('equipo') && (!log.participatingPlayers || log.participatingPlayers.length <= 1)) {
+                if (log.sessionType !== 'group') return false;
+              }
+
               if (!selectedTeam) return true;
 
               const currentTeamId = selectedTeam.id;
@@ -1856,15 +1869,15 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
               // 2. Direct teamName match or check if it explicitly matches another team
               if (log.teamName) {
                 const logTeamName = log.teamName.toLowerCase().trim();
-                if (logTeamName === currentTeamName) return true;
+                if (logTeamName === currentTeamName || logTeamName.includes(currentTeamName) || currentTeamName.includes(logTeamName)) return true;
                 const isOtherTeam = teams.some(t => t.id !== selectedTeam.id && logTeamName.includes(t.name.toLowerCase().trim()));
                 if (isOtherTeam) return false;
               }
 
-              // 3. Match by log.playerName containing selectedTeam.name
+              // 3. Match by log.playerName containing selectedTeam.name or group keywords
               if (log.playerName) {
                 const logPlayerNameLower = log.playerName.toLowerCase();
-                if (logPlayerNameLower.includes(currentTeamName)) {
+                if (logPlayerNameLower.includes(currentTeamName) || logPlayerNameLower.includes('grupo') || logPlayerNameLower.includes('plantilla')) {
                   return true;
                 }
                 const mentionsOtherTeam = teams.some(t => 
@@ -1884,12 +1897,7 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
                 if (players.length > 0) return false;
               }
 
-              // 5. Check if single player belongs to current team
-              if (log.playerId) {
-                return teamPlayerIds.has(log.playerId);
-              }
-
-              return false;
+              return true;
             });
 
             const isSessionInMicrocycle = (log: GymSessionLog, mcNum: number): boolean => {
@@ -2246,6 +2254,18 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
                     ].map(normalizeStringForMatch).filter(Boolean);
 
                     const playerLogs = rpeLogs.filter(log => {
+                      // Strictly exclude group sessions
+                      if (log.sessionType === 'group') return false;
+
+                      // Also ensure it's not a group session with multiple participants or group name
+                      const pNameLower = (log.playerName || '').toLowerCase();
+                      if (pNameLower.includes('grupo') || pNameLower.includes('plantilla') || pNameLower.includes('equipo')) {
+                        return false;
+                      }
+                      if (log.participatingPlayers && log.participatingPlayers.length > 1) {
+                        return false;
+                      }
+
                       // 1. Match by ID
                       if (log.playerId && String(log.playerId).trim() === normSelId) return true;
                       
@@ -2257,13 +2277,12 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
                         }
                       }
 
-                      // 3. Match by participating players list (if individual session where player is included)
-                      if (log.participatingPlayers && Array.isArray(log.participatingPlayers)) {
-                        const isPart = log.participatingPlayers.some(p => {
-                          const np = normalizeStringForMatch(p);
-                          return selNames.some(sn => sn === np || sn.includes(np) || np.includes(sn));
-                        });
-                        if (isPart) return true;
+                      // 3. Match if single participating player is this player
+                      if (log.participatingPlayers && log.participatingPlayers.length === 1) {
+                        const singleP = normalizeStringForMatch(log.participatingPlayers[0]);
+                        if (selNames.some(sn => sn === singleP || sn.includes(singleP) || singleP.includes(sn))) {
+                          return true;
+                        }
                       }
 
                       return false;

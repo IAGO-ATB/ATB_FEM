@@ -1194,7 +1194,7 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
       setViewingSession(null);
     }
 
-    // 2. Delete from Supabase
+    // 2. Delete from Supabase strictly by ID or with specific player_id constraint
     if (!supabase) return;
 
     try {
@@ -1216,18 +1216,11 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
             supabase.from('gym_sessions').delete().eq('id', numId)
           ]);
         }
-      }
-
-      // Also delete by matching routine name and session date
-      const matchRoutine = log.routine;
-      const matchDate = log.date;
-      if (matchRoutine && matchDate) {
+      } else if (log.playerId && log.routine && log.date) {
+        // Safe deletion matching player_id to prevent deleting other players' sessions
         await Promise.allSettled([
-          supabase.from('gym_group_sessions').delete().eq('routine', matchRoutine).eq('date', matchDate),
-          supabase.from('gym_group_sessions').delete().eq('routine_title', matchRoutine).eq('session_date', matchDate),
-          supabase.from('gym_individual_sessions').delete().eq('routine', matchRoutine).eq('date', matchDate),
-          supabase.from('gym_individual_sessions').delete().eq('routine_title', matchRoutine).eq('session_date', matchDate),
-          supabase.from('gym_sessions').delete().eq('routine', matchRoutine).eq('date', matchDate)
+          supabase.from('gym_individual_sessions').delete().eq('routine_title', log.routine).eq('session_date', log.date).eq('player_id', log.playerId),
+          supabase.from('gym_sessions').delete().eq('routine_title', log.routine).eq('session_date', log.date).eq('player_id', log.playerId)
         ]);
       }
     } catch (e) {
@@ -1245,7 +1238,20 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
       .replace(/\s+/g, ' ');
   };
 
+  const isGroupSession = (session: GymSessionLog): boolean => {
+    if (session.sessionType === 'group') return true;
+    if (session.sessionType === 'individual') return false;
+    const pName = (session.playerName || '').toLowerCase();
+    if (pName.includes('grupo') || pName.includes('plantilla') || pName.includes('equipo') || pName.includes('femenino')) return true;
+    if (session.participatingPlayers && session.participatingPlayers.length > 1) return true;
+    if (!session.playerId && (!pName || pName === 'jugadora')) return true;
+    return false;
+  };
+
   const getPlayerPhotoBase64 = async (session: GymSessionLog): Promise<string> => {
+    // If it is a group session, do not look up or attach any player photo
+    if (isGroupSession(session)) return '';
+
     const normSessionPlayer = normalizeStringForMatch(session.playerName);
     const sessionPlayerId = session.playerId ? String(session.playerId).trim() : '';
 
@@ -1342,57 +1348,93 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
         const session = sessions[sIdx];
         if (sIdx > 0) doc.addPage();
         
-        // Find player photo with bulletproof resolver
-        const photoBase64 = await getPlayerPhotoBase64(session);
-
+        const isGroup = isGroupSession(session);
         let y = 10;
 
-        // Player Image and Metadata Box at the top
-        if (photoBase64) {
-          doc.addImage(photoBase64, 'PNG', 14, y, 35, 35);
-        } else {
-          doc.setDrawColor(226, 232, 240);
-          doc.roundedRect(14, y, 35, 35, 2, 2, 'D');
-          doc.setTextColor(148, 163, 184);
-          doc.setFontSize(8);
-          doc.text('SIN FOTO', 22, y + 18);
-        }
-
-        // Metadata Box (Top-Right of image)
-        doc.setFillColor(248, 250, 252); // slate-50
-        doc.setDrawColor(226, 232, 240); // slate-200
-        doc.roundedRect(55, y, 141, 35, 3, 3, 'FD');
-
-        doc.setTextColor(30, 41, 59);
-        doc.setFontSize(10);
-        
         const formattedDate = session.date && session.date.includes('-')
           ? session.date.split('-').reverse().join('/')
           : session.date || '-';
 
-        // Row 1: Session Number (Routine) & Microcycle
-        doc.setFont('helvetica', 'bold');
-        doc.text('SESIÓN:', 60, y + 10);
-        doc.setFont('helvetica', 'normal');
-        doc.text((session.routine || '-').toUpperCase(), 80, y + 10);
+        if (isGroup) {
+          // GROUP SESSION: NO player photo or placeholder box
+          doc.setFillColor(248, 250, 252); // slate-50
+          doc.setDrawColor(226, 232, 240); // slate-200
+          doc.roundedRect(14, y, 182, 34, 3, 3, 'FD');
 
-        doc.setFont('helvetica', 'bold');
-        doc.text('MICROCICLO:', 130, y + 10);
-        doc.setFont('helvetica', 'normal');
-        doc.text((session.microcycle || '-').toUpperCase(), 165, y + 10);
+          doc.setTextColor(30, 41, 59);
+          doc.setFontSize(10);
 
-        // Row 2: Date & Player Name
-        doc.setFont('helvetica', 'bold');
-        doc.text('FECHA:', 60, y + 25);
-        doc.setFont('helvetica', 'normal');
-        doc.text(formattedDate, 80, y + 25);
+          // Row 1: Session & Microcycle
+          doc.setFont('helvetica', 'bold');
+          doc.text('SESIÓN:', 20, y + 12);
+          doc.setFont('helvetica', 'normal');
+          doc.text((session.routine || '-').toUpperCase(), 45, y + 12);
 
-        doc.setFont('helvetica', 'bold');
-        doc.text('JUGADORA:', 130, y + 25);
-        doc.setFont('helvetica', 'normal');
-        doc.text((session.playerName || '-').toUpperCase(), 165, y + 25);
+          doc.setFont('helvetica', 'bold');
+          doc.text('MICROCICLO:', 118, y + 12);
+          doc.setFont('helvetica', 'normal');
+          doc.text((session.microcycle || '-').toUpperCase(), 148, y + 12);
 
-        y = 55;
+          // Row 2: Date & Group Name
+          doc.setFont('helvetica', 'bold');
+          doc.text('FECHA:', 20, y + 25);
+          doc.setFont('helvetica', 'normal');
+          doc.text(formattedDate, 45, y + 25);
+
+          const groupLabel = (session.teamName || session.playerName || selectedTeam?.name || 'PLANTILLA').toUpperCase();
+          doc.setFont('helvetica', 'bold');
+          doc.text('GRUPO:', 118, y + 25);
+          doc.setFont('helvetica', 'normal');
+          doc.text(groupLabel, 148, y + 25);
+
+          y = 52;
+        } else {
+          // INDIVIDUAL SESSION: Find player photo
+          const photoBase64 = await getPlayerPhotoBase64(session);
+
+          // Player Image and Metadata Box at the top
+          if (photoBase64) {
+            doc.addImage(photoBase64, 'PNG', 14, y, 35, 35);
+          } else {
+            doc.setDrawColor(226, 232, 240);
+            doc.roundedRect(14, y, 35, 35, 2, 2, 'D');
+            doc.setTextColor(148, 163, 184);
+            doc.setFontSize(8);
+            doc.text('SIN FOTO', 22, y + 18);
+          }
+
+          // Metadata Box (Top-Right of image)
+          doc.setFillColor(248, 250, 252); // slate-50
+          doc.setDrawColor(226, 232, 240); // slate-200
+          doc.roundedRect(55, y, 141, 35, 3, 3, 'FD');
+
+          doc.setTextColor(30, 41, 59);
+          doc.setFontSize(10);
+
+          // Row 1: Session Number (Routine) & Microcycle
+          doc.setFont('helvetica', 'bold');
+          doc.text('SESIÓN:', 60, y + 10);
+          doc.setFont('helvetica', 'normal');
+          doc.text((session.routine || '-').toUpperCase(), 80, y + 10);
+
+          doc.setFont('helvetica', 'bold');
+          doc.text('MICROCICLO:', 130, y + 10);
+          doc.setFont('helvetica', 'normal');
+          doc.text((session.microcycle || '-').toUpperCase(), 165, y + 10);
+
+          // Row 2: Date & Player Name
+          doc.setFont('helvetica', 'bold');
+          doc.text('FECHA:', 60, y + 25);
+          doc.setFont('helvetica', 'normal');
+          doc.text(formattedDate, 80, y + 25);
+
+          doc.setFont('helvetica', 'bold');
+          doc.text('JUGADORA:', 130, y + 25);
+          doc.setFont('helvetica', 'normal');
+          doc.text((session.playerName || '-').toUpperCase(), 165, y + 25);
+
+          y = 55;
+        }
 
         // Block A: Activation
         if (session.activationExercises && session.activationExercises.length > 0) {
@@ -1533,58 +1575,93 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
     try {
       const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
       
-      // Find player photo with bulletproof resolver
-      const photoBase64 = await getPlayerPhotoBase64(session);
-
+      const isGroup = isGroupSession(session);
       let y = 10;
 
-      // Player Image and Metadata Box at the top
-      if (photoBase64) {
-        doc.addImage(photoBase64, 'PNG', 14, y, 35, 35);
-      } else {
-        // Placeholder or just skip
-        doc.setDrawColor(226, 232, 240);
-        doc.roundedRect(14, y, 35, 35, 2, 2, 'D');
-        doc.setTextColor(148, 163, 184);
-        doc.setFontSize(8);
-        doc.text('SIN FOTO', 22, y + 18);
-      }
-
-      // Metadata Box (Top-Right of image)
-      doc.setFillColor(248, 250, 252); // slate-50
-      doc.setDrawColor(226, 232, 240); // slate-200
-      doc.roundedRect(55, y, 141, 35, 3, 3, 'FD');
-
-      doc.setTextColor(30, 41, 59);
-      doc.setFontSize(10);
-      
       const formattedDate = session.date && session.date.includes('-')
         ? session.date.split('-').reverse().join('/')
         : session.date || '-';
 
-      // Row 1: Session Number (Routine) & Microcycle
-      doc.setFont('helvetica', 'bold');
-      doc.text('SESIÓN:', 60, y + 10);
-      doc.setFont('helvetica', 'normal');
-      doc.text((session.routine || '-').toUpperCase(), 80, y + 10);
+      if (isGroup) {
+        // GROUP SESSION: NO player photo or placeholder box
+        doc.setFillColor(248, 250, 252); // slate-50
+        doc.setDrawColor(226, 232, 240); // slate-200
+        doc.roundedRect(14, y, 182, 34, 3, 3, 'FD');
 
-      doc.setFont('helvetica', 'bold');
-      doc.text('MICROCICLO:', 130, y + 10);
-      doc.setFont('helvetica', 'normal');
-      doc.text((session.microcycle || '-').toUpperCase(), 165, y + 10);
+        doc.setTextColor(30, 41, 59);
+        doc.setFontSize(10);
 
-      // Row 2: Date & Player Name
-      doc.setFont('helvetica', 'bold');
-      doc.text('FECHA:', 60, y + 25);
-      doc.setFont('helvetica', 'normal');
-      doc.text(formattedDate, 80, y + 25);
+        // Row 1: Session & Microcycle
+        doc.setFont('helvetica', 'bold');
+        doc.text('SESIÓN:', 20, y + 12);
+        doc.setFont('helvetica', 'normal');
+        doc.text((session.routine || '-').toUpperCase(), 45, y + 12);
 
-      doc.setFont('helvetica', 'bold');
-      doc.text('JUGADORA:', 130, y + 25);
-      doc.setFont('helvetica', 'normal');
-      doc.text((session.playerName || '-').toUpperCase(), 165, y + 25);
+        doc.setFont('helvetica', 'bold');
+        doc.text('MICROCICLO:', 118, y + 12);
+        doc.setFont('helvetica', 'normal');
+        doc.text((session.microcycle || '-').toUpperCase(), 148, y + 12);
 
-      y = 55;
+        // Row 2: Date & Group Name
+        doc.setFont('helvetica', 'bold');
+        doc.text('FECHA:', 20, y + 25);
+        doc.setFont('helvetica', 'normal');
+        doc.text(formattedDate, 45, y + 25);
+
+        const groupLabel = (session.teamName || session.playerName || selectedTeam?.name || 'PLANTILLA').toUpperCase();
+        doc.setFont('helvetica', 'bold');
+        doc.text('GRUPO:', 118, y + 25);
+        doc.setFont('helvetica', 'normal');
+        doc.text(groupLabel, 148, y + 25);
+
+        y = 52;
+      } else {
+        // INDIVIDUAL SESSION: Find player photo
+        const photoBase64 = await getPlayerPhotoBase64(session);
+
+        // Player Image and Metadata Box at the top
+        if (photoBase64) {
+          doc.addImage(photoBase64, 'PNG', 14, y, 35, 35);
+        } else {
+          doc.setDrawColor(226, 232, 240);
+          doc.roundedRect(14, y, 35, 35, 2, 2, 'D');
+          doc.setTextColor(148, 163, 184);
+          doc.setFontSize(8);
+          doc.text('SIN FOTO', 22, y + 18);
+        }
+
+        // Metadata Box (Top-Right of image)
+        doc.setFillColor(248, 250, 252); // slate-50
+        doc.setDrawColor(226, 232, 240); // slate-200
+        doc.roundedRect(55, y, 141, 35, 3, 3, 'FD');
+
+        doc.setTextColor(30, 41, 59);
+        doc.setFontSize(10);
+
+        // Row 1: Session Number (Routine) & Microcycle
+        doc.setFont('helvetica', 'bold');
+        doc.text('SESIÓN:', 60, y + 10);
+        doc.setFont('helvetica', 'normal');
+        doc.text((session.routine || '-').toUpperCase(), 80, y + 10);
+
+        doc.setFont('helvetica', 'bold');
+        doc.text('MICROCICLO:', 130, y + 10);
+        doc.setFont('helvetica', 'normal');
+        doc.text((session.microcycle || '-').toUpperCase(), 165, y + 10);
+
+        // Row 2: Date & Player Name
+        doc.setFont('helvetica', 'bold');
+        doc.text('FECHA:', 60, y + 25);
+        doc.setFont('helvetica', 'normal');
+        doc.text(formattedDate, 80, y + 25);
+
+        doc.setFont('helvetica', 'bold');
+        doc.text('JUGADORA:', 130, y + 25);
+        doc.setFont('helvetica', 'normal');
+        doc.text((session.playerName || '-').toUpperCase(), 165, y + 25);
+
+        y = 55;
+      }
 
       // Block A: Activation
       if (session.activationExercises && session.activationExercises.length > 0) {
@@ -2259,17 +2336,24 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
 
                       // Also ensure it's not a group session with multiple participants or group name
                       const pNameLower = (log.playerName || '').toLowerCase();
-                      if (pNameLower.includes('grupo') || pNameLower.includes('plantilla') || pNameLower.includes('equipo')) {
-                        return false;
-                      }
-                      if (log.participatingPlayers && log.participatingPlayers.length > 1) {
+                      if (pNameLower.includes('plantilla completa') || pNameLower.includes('equipo principal')) {
                         return false;
                       }
 
                       // 1. Match by ID
                       if (log.playerId && String(log.playerId).trim() === normSelId) return true;
                       
-                      // 2. Match by Player Name
+                      // 2. Match by targetPlayerIds if saved in details
+                      if (log.details) {
+                        try {
+                          const parsed = typeof log.details === 'string' ? JSON.parse(log.details) : log.details;
+                          if (parsed?.targetPlayerIds && Array.isArray(parsed.targetPlayerIds)) {
+                            if (parsed.targetPlayerIds.map(String).includes(normSelId)) return true;
+                          }
+                        } catch (e) {}
+                      }
+
+                      // 3. Match by Player Name
                       const normLogPlayer = normalizeStringForMatch(log.playerName);
                       if (normLogPlayer && normLogPlayer !== 'jugadora' && normLogPlayer !== 'grupo') {
                         if (selNames.some(sn => sn === normLogPlayer || sn.includes(normLogPlayer) || normLogPlayer.includes(sn))) {
@@ -2277,12 +2361,13 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
                         }
                       }
 
-                      // 3. Match if single participating player is this player
-                      if (log.participatingPlayers && log.participatingPlayers.length === 1) {
-                        const singleP = normalizeStringForMatch(log.participatingPlayers[0]);
-                        if (selNames.some(sn => sn === singleP || sn.includes(singleP) || singleP.includes(sn))) {
-                          return true;
-                        }
+                      // 4. Match if participating players list includes this player
+                      if (log.participatingPlayers && log.participatingPlayers.length > 0) {
+                        const isPlayerInParticipants = log.participatingPlayers.some(pName => {
+                          const normPName = normalizeStringForMatch(pName);
+                          return selNames.some(sn => sn === normPName || sn.includes(normPName) || normPName.includes(sn));
+                        });
+                        if (isPlayerInParticipants) return true;
                       }
 
                       return false;

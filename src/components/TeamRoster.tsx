@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft, UserPlus, Search, Filter, Mail, Phone, MoreHorizontal, X, Trash2, Upload, Users, Plus, BarChart2, Dumbbell, ClipboardList, FileText, Clock, ClipboardCheck, Sparkles, Activity, Layers, Target, TrendingUp, Zap } from 'lucide-react';
+import { ArrowLeft, UserPlus, Search, Filter, Mail, Phone, MoreHorizontal, X, Trash2, Upload, Users, User, Plus, BarChart2, Dumbbell, ClipboardList, FileText, Clock, ClipboardCheck, Sparkles, Activity, Layers, Target, TrendingUp, Zap, Trophy } from 'lucide-react';
 import { Team, Player } from '../types';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabase';
@@ -78,29 +78,242 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
     }
   };
 
-  const [gymStats, setGymStats] = useState<{
-    loading: boolean;
-    totalGroupSessions: number;
-    totalIndividualSessions: number;
+  interface GymCategoryStats {
+    totalSessions: number;
     sessionsByType: Record<string, number>;
     exercisesByMuscleGroup: Record<string, number>;
     totalExercises: number;
-    recentSessions: Array<{
-      id: string;
-      date: string;
-      routine: string;
-      sessionTypeCategory?: string;
-      exercisesCount: number;
-      sessionType: 'group' | 'individual';
-    }>;
+  }
+
+  const [matchStats, setMatchStats] = useState<{
+    loading: boolean;
+    matchesPlayed: number;
+    starts: number;
+    subEntries: number;
+    minutes: number;
+    startsMinutes: number;
+    subMinutes: number;
+    goals: number;
+    yellowCards: number;
+    redCards: number;
+    shots: number;
+    shotsOnTarget: number;
+    minutesByPosition: Record<string, number>;
+    availableCompetitions: string[];
   }>({
     loading: false,
-    totalGroupSessions: 0,
-    totalIndividualSessions: 0,
-    sessionsByType: {},
-    exercisesByMuscleGroup: {},
-    totalExercises: 0,
-    recentSessions: []
+    matchesPlayed: 0,
+    starts: 0,
+    subEntries: 0,
+    minutes: 0,
+    startsMinutes: 0,
+    subMinutes: 0,
+    goals: 0,
+    yellowCards: 0,
+    redCards: 0,
+    shots: 0,
+    shotsOnTarget: 0,
+    minutesByPosition: {},
+    availableCompetitions: []
+  });
+
+  const [matchCompetitionFilter, setMatchCompetitionFilter] = useState<string>('all');
+  const [rawMatchesData, setRawMatchesData] = useState<any[]>([]);
+
+  // Effect to re-process stats when filter changes or data is loaded
+  useEffect(() => {
+    if (selectedPlayerDetail && rawMatchesData.length > 0) {
+      processMatchData(rawMatchesData, selectedPlayerDetail.id, matchCompetitionFilter);
+    }
+  }, [matchCompetitionFilter, selectedPlayerDetail?.id, rawMatchesData]);
+
+  // Reset filter when changing player
+  useEffect(() => {
+    setMatchCompetitionFilter('all');
+  }, [selectedPlayerDetail?.id]);
+
+  const fetchPlayerMatchStats = async (playerId: string) => {
+    setMatchStats(prev => ({ ...prev, loading: true }));
+    try {
+      if (!supabase) return;
+
+      // Fetch all matches that might have stats
+      const { data, error } = await supabase
+        .from('matches')
+        .select('*')
+        .eq('status', 'finished');
+
+      let finalData = data || [];
+
+      if (error && (error.code === '42P01' || error.message?.includes('does not exist'))) {
+        // Fallback to calendar_matches if matches table doesn't exist
+        const { data: calData, error: calError } = await supabase
+          .from('calendar_matches')
+          .select('*')
+          .eq('status', 'finished');
+        
+        if (calError) throw calError;
+        finalData = calData || [];
+      } else if (error) {
+        throw error;
+      }
+
+      setRawMatchesData(finalData);
+      processMatchData(finalData, playerId, matchCompetitionFilter);
+    } catch (err) {
+      console.error('Error fetching match stats:', err);
+      setMatchStats(prev => ({ ...prev, loading: false }));
+    }
+  };
+
+  const processMatchData = (matchesData: any[], playerId: string, compFilter: string) => {
+    let matchesPlayed = 0;
+    let starts = 0;
+    let subEntries = 0;
+    let minutes = 0;
+    let startsMinutes = 0;
+    let subMinutes = 0;
+    let goals = 0;
+    let yellowCards = 0;
+    let redCards = 0;
+    let shots = 0;
+    let shotsOnTarget = 0;
+    const minutesByPosition: Record<string, number> = {};
+    const compsSet = new Set<string>();
+
+    matchesData.forEach(m => {
+      let pStats: any[] = [];
+      
+      // Collect available competitions (case-sensitive as saved, but trimmed)
+      const comp = (m.type || m.competition || '').trim();
+      if (comp) compsSet.add(comp);
+
+      // Filter by competition if not 'all'
+      if (compFilter !== 'all' && comp.toLowerCase() !== compFilter.toLowerCase()) return;
+
+      // Try notes (JSON)
+      if (m.notes) {
+        try {
+          const parsed = typeof m.notes === 'string' ? JSON.parse(m.notes) : m.notes;
+          const foundStats = parsed?.playerStats || parsed?.player_stats;
+          if (foundStats && Array.isArray(foundStats)) {
+            pStats = foundStats;
+          }
+        } catch (e) {}
+      }
+      
+      // Try details (JSON) if notes failed
+      if (pStats.length === 0 && m.details) {
+        try {
+          const parsed = typeof m.details === 'string' ? JSON.parse(m.details) : m.details;
+          const foundStats = parsed?.playerStats || parsed?.player_stats;
+          if (foundStats && Array.isArray(foundStats)) {
+            pStats = foundStats;
+          }
+        } catch (e) {}
+      }
+
+      // Try localStorage cache as well (Sync with StatsView.tsx)
+      if (pStats.length === 0) {
+        try {
+          const localCache = localStorage.getItem(`match_player_stats_${m.id}`);
+          if (localCache) {
+            const parsed = JSON.parse(localCache);
+            if (Array.isArray(parsed)) {
+              pStats = parsed;
+            } else if (parsed?.playerStats && Array.isArray(parsed.playerStats)) {
+              pStats = parsed.playerStats;
+            }
+          }
+        } catch (e) {}
+      }
+
+      // Try direct column if still empty
+      if (pStats.length === 0) {
+        pStats = m.player_stats || m.playerStats || [];
+      }
+
+      if (!pStats || !Array.isArray(pStats)) return;
+
+      // Extremely robust matching: check ID, Number/Dorsal, and Name fallbacks
+      const stat = pStats.find((s: any) => {
+        // 1. Try ID matching (most reliable)
+        const sId = String(s.playerId || s.id || s.player_id || '').trim();
+        const targetId = String(playerId).trim();
+        if (sId !== '' && targetId !== '' && sId === targetId) return true;
+        
+        // 2. Try Number/Dorsal matching (fallback)
+        const sNum = s.playerNumber !== undefined ? s.playerNumber : s.number;
+        const targetNum = selectedPlayerDetail?.number !== undefined ? selectedPlayerDetail.number : selectedPlayerDetail?.dorsal;
+        if (sNum !== undefined && targetNum !== undefined && Number(sNum) === Number(targetNum)) return true;
+
+        // 3. Try Name matching (last resort)
+        const sName = (s.playerName || s.name || '').toLowerCase().trim();
+        const targetName = (selectedPlayerDetail?.name || '').toLowerCase().trim();
+        if (sName !== '' && targetName !== '' && (sName.includes(targetName) || targetName.includes(sName))) return true;
+
+        return false;
+      });
+
+      if (!stat) return;
+
+      const min = Number(stat.minutes || 0);
+      const status = String(stat.status || '').toLowerCase().trim();
+
+      if (status === 'titular') {
+        matchesPlayed++;
+        starts++;
+        startsMinutes += min;
+      } else if (status === 'suplente' && min > 0) {
+        matchesPlayed++;
+        subEntries++;
+        subMinutes += min;
+      }
+
+      minutes += min;
+      goals += Number(stat.goals || 0);
+      yellowCards += Number(stat.yellowCards || 0);
+      redCards += Number(stat.redCards || 0);
+      shots += Number(stat.shots || 0);
+      shotsOnTarget += Number(stat.shotsOnTarget || 0);
+
+      // Track minutes by position
+      const pos = (stat.position || stat.posicion_especifica || 'Sin Posición').trim();
+      if (min > 0) {
+        minutesByPosition[pos] = (minutesByPosition[pos] || 0) + min;
+      }
+    });
+
+    setMatchStats({
+      loading: false,
+      matchesPlayed,
+      starts,
+      subEntries,
+      minutes,
+      startsMinutes,
+      subMinutes,
+      goals,
+      yellowCards,
+      redCards,
+      shots,
+      shotsOnTarget,
+      minutesByPosition,
+      availableCompetitions: Array.from(compsSet).sort()
+    });
+  };
+
+  const [gymSubView, setGymSubView] = useState<'grupal' | 'individual' | 'total'>('grupal');
+
+  const [gymStats, setGymStats] = useState<{
+    loading: boolean;
+    group: GymCategoryStats;
+    individual: GymCategoryStats;
+    total: GymCategoryStats;
+  }>({
+    loading: false,
+    group: { totalSessions: 0, sessionsByType: {}, exercisesByMuscleGroup: {}, totalExercises: 0 },
+    individual: { totalSessions: 0, sessionsByType: {}, exercisesByMuscleGroup: {}, totalExercises: 0 },
+    total: { totalSessions: 0, sessionsByType: {}, exercisesByMuscleGroup: {}, totalExercises: 0 }
   });
 
   const fetchPlayerGymStats = async (player: Player) => {
@@ -130,19 +343,19 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
         }
       } catch (e) {}
 
-      // 2. Query group session tables from Supabase
-      const allGroupLogs: any[] = [];
+      // 2. Query session tables from Supabase
+      const allLogs: any[] = [];
       const seenIds = new Set<string>();
 
       const fetchTableLogs = async (tableName: string) => {
         try {
-          const { data } = await supabase.from(tableName).select('*').order('created_at', { ascending: false }).limit(100);
+          const { data } = await supabase.from(tableName).select('*').order('created_at', { ascending: false }).limit(200);
           if (data) {
             data.forEach(item => {
               const key = `${tableName}-${item.id}`;
               if (!seenIds.has(key)) {
                 seenIds.add(key);
-                allGroupLogs.push(item);
+                allLogs.push({ ...item, _sourceTable: tableName });
               }
             });
           }
@@ -156,14 +369,11 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
         fetchTableLogs('gym_individual_sessions')
       ]);
 
-      let totalGroupSessions = 0;
-      let totalIndividualSessions = 0;
-      const sessionsByType: Record<string, number> = {};
-      const exercisesByMuscleGroup: Record<string, number> = {};
-      let totalExercises = 0;
-      const recentSessions: any[] = [];
+      const groupAcc: GymCategoryStats = { totalSessions: 0, sessionsByType: {}, exercisesByMuscleGroup: {}, totalExercises: 0 };
+      const indAcc: GymCategoryStats = { totalSessions: 0, sessionsByType: {}, exercisesByMuscleGroup: {}, totalExercises: 0 };
+      const totalAcc: GymCategoryStats = { totalSessions: 0, sessionsByType: {}, exercisesByMuscleGroup: {}, totalExercises: 0 };
 
-      allGroupLogs.forEach(row => {
+      allLogs.forEach(row => {
         let parsed: any = null;
         const rawData = row.notes || row.details;
         if (rawData) {
@@ -174,63 +384,107 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
 
         const targetPlayerIds: string[] = (parsed?.targetPlayerIds || []).map((id: any) => String(id));
         const participatingPlayers: string[] = (parsed?.participatingPlayers || row.participating_players || []).map((p: any) => String(p));
-        const isIndividual = Boolean(row.player_id && !participatingPlayers.length && !targetPlayerIds.length);
-        const sessionType = row.sessionType || (isIndividual ? 'individual' : 'group');
+        const isIndividualTable = (row._sourceTable || '').includes('individual');
+        const isGroupTable = (row._sourceTable || '').includes('group');
+
+        let isIndividual = false;
+        if (isIndividualTable || row.session_type === 'individual' || row.sessionType === 'individual') {
+          isIndividual = true;
+        } else if (isGroupTable || row.session_type === 'group' || row.sessionType === 'group') {
+          isIndividual = false;
+        } else if (row.player_id && !participatingPlayers.length && !targetPlayerIds.length) {
+          isIndividual = true;
+        } else if (participatingPlayers.length > 1 || targetPlayerIds.length > 1) {
+          isIndividual = false;
+        } else if ((row.player_name || '').toLowerCase().includes('plantilla') || (row.player_name || '').toLowerCase().includes('grupo') || (row.player_name || '').toLowerCase().includes('equipo')) {
+          isIndividual = false;
+        } else {
+          isIndividual = Boolean(row.player_id);
+        }
+        const isGroup = !isIndividual;
 
         // Participation check
         let isParticipant = false;
 
-        if (targetPlayerIds.length > 0) {
-          isParticipant = targetPlayerIds.includes(playerId);
-        } else if (participatingPlayers.length > 0) {
-          isParticipant = participatingPlayers.some(pName => {
-            const cleanPName = String(pName).trim().toLowerCase();
-            return cleanPName === pFullName || cleanPName === pFirstName || cleanPName.includes(pFirstName) || pFullName.includes(cleanPName);
-          });
-        } else if (row.player_id) {
-          isParticipant = String(row.player_id) === playerId;
-        } else if (row.player_name) {
-          const cleanName = String(row.player_name).trim().toLowerCase();
-          isParticipant = cleanName === pFullName || cleanName === pFirstName || cleanName.includes(pFirstName);
-        } else if (row.team_id || row.team) {
-          if (player.teamId && (String(row.team_id) === String(player.teamId) || String(row.team) === String(player.teamId))) {
+        if (isIndividual) {
+          if (row.player_id && String(row.player_id).trim() === playerId) {
             isParticipant = true;
-          } else if (team.name && row.team === team.name) {
+          } else if (targetPlayerIds.length > 0 && targetPlayerIds.includes(playerId)) {
             isParticipant = true;
+          } else if (participatingPlayers.length > 0) {
+            isParticipant = participatingPlayers.some(pName => {
+              const cleanPName = String(pName).trim().toLowerCase();
+              return cleanPName === pFullName || cleanPName === pFirstName || cleanPName.includes(pFirstName) || pFullName.includes(cleanPName);
+            });
+          } else if (row.player_name) {
+            const cleanName = String(row.player_name).trim().toLowerCase();
+            isParticipant = cleanName === pFullName || cleanName === pFirstName || cleanName.includes(pFirstName);
+          }
+        } else {
+          if (targetPlayerIds.length > 0) {
+            isParticipant = targetPlayerIds.includes(playerId);
+          } else if (participatingPlayers.length > 0) {
+            isParticipant = participatingPlayers.some(pName => {
+              const cleanPName = String(pName).trim().toLowerCase();
+              return cleanPName === pFullName || cleanPName === pFirstName || cleanPName.includes(pFirstName) || cleanPName.includes('plantilla') || cleanPName.includes('equipo') || cleanPName.includes('grupo');
+            });
+          } else if (row.player_id) {
+            isParticipant = String(row.player_id).trim() === playerId;
+          } else if (row.player_name) {
+            const cleanName = String(row.player_name).trim().toLowerCase();
+            isParticipant = cleanName === pFullName || cleanName === pFirstName || cleanName.includes(pFirstName) || cleanName.includes('plantilla') || cleanName.includes('equipo') || cleanName.includes('grupo');
+          } else if (row.team_id || row.team) {
+            if (player.teamId && (String(row.team_id) === String(player.teamId) || String(row.team) === String(player.teamId))) {
+              isParticipant = true;
+            } else if (team.name && row.team === team.name) {
+              isParticipant = true;
+            } else {
+              isParticipant = true;
+            }
           } else {
             isParticipant = true;
           }
-        } else {
-          isParticipant = true;
         }
 
         if (isParticipant) {
-          if (sessionType === 'group' || !row.player_id) {
-            totalGroupSessions++;
-          } else {
-            totalIndividualSessions++;
+          const targetCat = isGroup ? groupAcc : indAcc;
+
+          targetCat.totalSessions++;
+          totalAcc.totalSessions++;
+
+          // Session type category (Only for group sessions)
+          if (isGroup) {
+            let rawType = row.session_type_category || row.tipo || row.type || parsed?.sessionTypeCategory || parsed?.tipo || parsed?.type;
+            if (!rawType || rawType === 'group' || rawType === 'individual') {
+              rawType = row.routine_title || row.routine || row.routine_name || 'General Grupal';
+            }
+
+            let typeCategory = String(rawType).trim();
+            const upperType = typeCategory.toUpperCase();
+            if (upperType === 'S1' || upperType === 'SESION 1' || upperType === 'SESIÓN 1') {
+              typeCategory = 'ST1';
+            } else if (upperType === 'S2' || upperType === 'SESION 2' || upperType === 'SESIÓN 2') {
+              typeCategory = 'ST2-I';
+            } else if (upperType === 'S3' || upperType === 'SESION 3' || upperType === 'SESIÓN 3') {
+              typeCategory = 'ST3';
+            }
+
+            const formattedType = typeCategory.toUpperCase().startsWith('ST') || typeCategory === 'CORE' || typeCategory === 'TREN SUPERIOR'
+              ? typeCategory.toUpperCase()
+              : typeCategory.charAt(0).toUpperCase() + typeCategory.slice(1);
+
+            groupAcc.sessionsByType[formattedType] = (groupAcc.sessionsByType[formattedType] || 0) + 1;
+            totalAcc.sessionsByType[formattedType] = (totalAcc.sessionsByType[formattedType] || 0) + 1;
           }
 
-          // Session type category
-          let rawType = row.session_type_category || row.tipo || row.type || parsed?.sessionTypeCategory || parsed?.tipo || parsed?.type;
-          if (!rawType || rawType === 'group' || rawType === 'individual') {
-            rawType = row.routine_title || row.routine || row.routine_name || 'General';
-          }
-
-          const typeCategory = String(rawType).trim();
-          const formattedType = typeCategory.charAt(0).toUpperCase() + typeCategory.slice(1);
-          sessionsByType[formattedType] = (sessionsByType[formattedType] || 0) + 1;
-
-          // Exercises breakdown
+          // Exercises breakdown (summed for BOTH group and individual)
           const activationExercises: any[] = parsed?.activationExercises || row.activation_exercises || [];
           const mainBlockExercises: any[] = parsed?.mainBlockExercises || row.main_block_exercises || [];
           const allExercises = [...activationExercises, ...mainBlockExercises];
 
-          let sessionExCount = 0;
-
           allExercises.forEach(ex => {
-            sessionExCount++;
-            totalExercises++;
+            targetCat.totalExercises++;
+            totalAcc.totalExercises++;
 
             const inner = ex.exercise || ex;
             const exName = (inner.name || inner.exerciseName || ex.name || ex.exerciseName || '').trim();
@@ -274,28 +528,17 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
             else if (cleanMuscle.toLowerCase().includes('core')) cleanMuscle = 'CORE / Abdomen';
             else if (cleanMuscle.toLowerCase().includes('superior')) cleanMuscle = 'Tren Superior';
 
-            exercisesByMuscleGroup[cleanMuscle] = (exercisesByMuscleGroup[cleanMuscle] || 0) + 1;
-          });
-
-          recentSessions.push({
-            id: String(row.id || Math.random()),
-            date: row.session_date || row.date || (row.created_at ? new Date(row.created_at).toISOString().split('T')[0] : '—'),
-            routine: row.routine_title || row.routine || 'Sesión de Gimnasio',
-            sessionTypeCategory: formattedType,
-            exercisesCount: sessionExCount,
-            sessionType: sessionType === 'group' ? 'group' : 'individual'
+            targetCat.exercisesByMuscleGroup[cleanMuscle] = (targetCat.exercisesByMuscleGroup[cleanMuscle] || 0) + 1;
+            totalAcc.exercisesByMuscleGroup[cleanMuscle] = (totalAcc.exercisesByMuscleGroup[cleanMuscle] || 0) + 1;
           });
         }
       });
 
       setGymStats({
         loading: false,
-        totalGroupSessions,
-        totalIndividualSessions,
-        sessionsByType,
-        exercisesByMuscleGroup,
-        totalExercises,
-        recentSessions: recentSessions.slice(0, 10)
+        group: groupAcc,
+        individual: indAcc,
+        total: totalAcc
       });
     } catch (err) {
       console.error('Error fetching gym stats for player:', err);
@@ -1075,7 +1318,10 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
                         {/* Action Buttons */}
                         <div className="mt-6 grid grid-cols-2 gap-3">
                           <button 
-                            onClick={() => setActiveProfileView('stats')}
+                            onClick={() => {
+                              setActiveProfileView('stats');
+                              if (selectedPlayerDetail) fetchPlayerMatchStats(selectedPlayerDetail.id);
+                            }}
                             className="flex items-center justify-center gap-2 p-3 bg-slate-50 hover:bg-slate-100 border border-slate-100 rounded-xl transition-all group cursor-pointer shadow-sm active:scale-95"
                           >
                             <BarChart2 className="w-4 h-4 text-sky-500 group-hover:scale-110 transition-transform" />
@@ -1190,160 +1436,379 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
                         </div>
                       </div>
 
+                      {/* 3 Botones Pequeños Superiores: GRUPAL / INDIVIDUAL / TOTAL */}
+                      <div className="flex items-center bg-slate-100 p-1 rounded-2xl border border-slate-200/80 gap-1 shadow-2xs">
+                        <button
+                          type="button"
+                          onClick={() => setGymSubView('grupal')}
+                          className={`flex-1 py-2 px-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                            gymSubView === 'grupal'
+                              ? 'bg-white text-sky-600 shadow-xs border border-slate-200/80'
+                              : 'text-slate-500 hover:text-slate-800'
+                          }`}
+                        >
+                          <Users className="w-3.5 h-3.5" />
+                          <span>Grupal</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setGymSubView('individual')}
+                          className={`flex-1 py-2 px-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                            gymSubView === 'individual'
+                              ? 'bg-white text-sky-600 shadow-xs border border-slate-200/80'
+                              : 'text-slate-500 hover:text-slate-800'
+                          }`}
+                        >
+                          <User className="w-3.5 h-3.5" />
+                          <span>Individual</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setGymSubView('total')}
+                          className={`flex-1 py-2 px-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                            gymSubView === 'total'
+                              ? 'bg-white text-sky-600 shadow-xs border border-slate-200/80'
+                              : 'text-slate-500 hover:text-slate-800'
+                          }`}
+                        >
+                          <Layers className="w-3.5 h-3.5" />
+                          <span>Total</span>
+                        </button>
+                      </div>
+
                       {gymStats.loading ? (
                         <div className="flex flex-col items-center justify-center py-16 gap-4">
                           <div className="w-8 h-8 border-4 border-sky-500 border-t-transparent rounded-full animate-spin"></div>
                           <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Cargando analítica de gimnasio...</p>
                         </div>
+                      ) : (() => {
+                        const currentStats = gymSubView === 'grupal' 
+                          ? gymStats.group 
+                          : gymSubView === 'individual' 
+                            ? gymStats.individual 
+                            : gymStats.total;
+
+                        const subViewLabel = gymSubView === 'grupal' 
+                          ? 'Grupales' 
+                          : gymSubView === 'individual' 
+                            ? 'Individuales' 
+                            : 'Totales';
+
+                        const subViewTitle = gymSubView === 'grupal' 
+                          ? 'Sesiones Grupales Realizadas' 
+                          : gymSubView === 'individual' 
+                            ? 'Sesiones Individuales Realizadas' 
+                            : 'Sesiones Totales Realizadas';
+
+                        return (
+                          <div className="space-y-6">
+                            {/* 1. KPI HIGHLIGHT CARD: SESIONES REALIZADAS */}
+                            <div className="bg-slate-900 p-5 rounded-3xl text-white shadow-xl shadow-slate-200 relative overflow-hidden border border-slate-800">
+                              <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center gap-2">
+                                  {gymSubView === 'grupal' && <Users className="w-5 h-5 text-sky-400" />}
+                                  {gymSubView === 'individual' && <User className="w-5 h-5 text-sky-400" />}
+                                  {gymSubView === 'total' && <Layers className="w-5 h-5 text-sky-400" />}
+                                  <span className="text-[10px] font-black tracking-widest text-slate-400 uppercase">
+                                    {subViewLabel}
+                                  </span>
+                                </div>
+                                <span className="text-[10px] font-black text-sky-300 bg-sky-950/80 border border-sky-800/60 px-2.5 py-0.5 rounded-full">
+                                  {currentStats.totalSessions === 1 ? '1 Sesión' : `${currentStats.totalSessions} Sesiones`}
+                                </span>
+                              </div>
+                              <p className="text-4xl font-black text-sky-400">{currentStats.totalSessions}</p>
+                              <p className="text-[11px] font-bold mt-1 text-slate-300">
+                                {subViewTitle}
+                              </p>
+                            </div>
+
+                            {/* 2. BREAKDOWN: SESIONES POR TIPO (Solo para Grupal y Total) */}
+                            {gymSubView !== 'individual' && (
+                              <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
+                                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                                  <div className="flex items-center gap-2">
+                                    <Layers className="w-4 h-4 text-sky-500" />
+                                    <h5 className="text-xs font-black text-slate-900 uppercase tracking-wider">Sesiones por Tipo</h5>
+                                  </div>
+                                  <span className="text-[10px] font-extrabold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg">
+                                    {Object.keys(currentStats.sessionsByType).length} Tipos
+                                  </span>
+                                </div>
+
+                                {Object.keys(currentStats.sessionsByType).length === 0 ? (
+                                  <div className="py-6 text-center space-y-1">
+                                    <p className="text-xs font-bold text-slate-500">Sin registros por tipo de sesión ({subViewLabel.toLowerCase()})</p>
+                                    <p className="text-[10px] text-slate-400">No hay sesiones de gimnasio registradas en esta categoría todavía.</p>
+                                  </div>
+                                ) : (
+                                  <div className="space-y-3">
+                                    {Object.entries(currentStats.sessionsByType)
+                                      .sort((a, b) => b[1] - a[1])
+                                      .map(([type, count]) => {
+                                        const total = (gymSubView === 'total' ? gymStats.group.totalSessions : currentStats.totalSessions) || 1;
+                                        const percentage = Math.round((count / total) * 100);
+                                        return (
+                                          <div key={type} className="space-y-1.5">
+                                            <div className="flex items-center justify-between text-xs font-bold text-slate-700">
+                                              <span className="flex items-center gap-2">
+                                                <span className="w-2.5 h-2.5 rounded-full bg-sky-500 shadow-2xs"></span>
+                                                {type}
+                                              </span>
+                                              <span className="text-slate-900 font-black">
+                                                {count} {count === 1 ? 'sesión' : 'sesiones'} <span className="text-[10px] text-slate-400 font-normal">({percentage}%)</span>
+                                              </span>
+                                            </div>
+                                            <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden p-0.5">
+                                              <div 
+                                                className="bg-sky-500 h-1.5 rounded-full transition-all duration-500"
+                                                style={{ width: `${Math.min(100, Math.max(6, percentage))}%` }}
+                                              ></div>
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {/* 3. BREAKDOWN: EJERCICIOS POR GRUPO MUSCULAR */}
+                            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
+                              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                                <div className="flex items-center gap-2">
+                                  <Target className="w-4 h-4 text-emerald-500" />
+                                  <h5 className="text-xs font-black text-slate-900 uppercase tracking-wider">Ejercicios por Grupo Muscular</h5>
+                                </div>
+                                <span className="text-[10px] font-extrabold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg">
+                                  {currentStats.totalExercises} Ejercicios Totales
+                                </span>
+                              </div>
+
+                              {Object.keys(currentStats.exercisesByMuscleGroup).length === 0 ? (
+                                <div className="py-6 text-center space-y-1">
+                                  <p className="text-xs font-bold text-slate-500">Sin ejercicios clasificados ({subViewLabel.toLowerCase()})</p>
+                                  <p className="text-[10px] text-slate-400">Los ejercicios de las sesiones registradas no especifican grupo muscular.</p>
+                                </div>
+                              ) : (
+                                <div className="space-y-3">
+                                  {Object.entries(currentStats.exercisesByMuscleGroup)
+                                    .sort((a, b) => b[1] - a[1])
+                                    .map(([group, count]) => {
+                                      const totalEx = currentStats.totalExercises || 1;
+                                      const percentage = Math.round((count / totalEx) * 100);
+                                      return (
+                                        <div key={group} className="p-3.5 bg-slate-50/80 hover:bg-slate-50 border border-slate-200/70 rounded-xl space-y-2 transition-colors">
+                                          <div className="flex items-center justify-between gap-2">
+                                            <span className="text-xs font-black text-slate-800 flex items-center gap-2">
+                                              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0"></span>
+                                              {group}
+                                            </span>
+                                            <span className="text-xs font-black text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200/70 shadow-2xs whitespace-nowrap">
+                                              {count} {count === 1 ? 'ejercicio' : 'ejercicios'}
+                                            </span>
+                                          </div>
+                                          <div className="flex items-center gap-3">
+                                            <div className="flex-1 bg-slate-200/70 rounded-full h-2 overflow-hidden">
+                                              <div 
+                                                className="bg-emerald-500 h-2 rounded-full transition-all duration-500"
+                                                style={{ width: `${Math.min(100, Math.max(5, percentage))}%` }}
+                                              ></div>
+                                            </div>
+                                            <span className="text-[10px] font-bold text-slate-400 shrink-0">{percentage}% del total</span>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  ) : activeProfileView === 'stats' ? (
+                    <div className="space-y-6">
+                      <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                        <button 
+                          onClick={() => setActiveProfileView('info')}
+                          className="flex items-center gap-2 text-slate-400 hover:text-slate-600 transition-colors"
+                        >
+                          <ArrowLeft className="w-4 h-4" />
+                          <span className="text-[10px] font-bold uppercase tracking-widest">Volver al Perfil</span>
+                        </button>
+                        <div className="flex items-center gap-2">
+                          <BarChart2 className="w-5 h-5 text-sky-500" />
+                          <h4 className="text-base font-black text-slate-900 uppercase tracking-tight">Estadísticas de Competición</h4>
+                        </div>
+                      </div>
+
+                      {/* Competition Filter */}
+                      {matchStats.availableCompetitions.length > 0 && (
+                        <div className="flex items-center justify-between gap-4 p-1 bg-slate-100 rounded-xl border border-slate-200/60">
+                          <div className="flex items-center gap-2 px-3 py-1.5">
+                            <Filter className="w-3.5 h-3.5 text-slate-400" />
+                            <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Filtrar por:</span>
+                          </div>
+                          <select 
+                            value={matchCompetitionFilter}
+                            onChange={(e) => setMatchCompetitionFilter(e.target.value)}
+                            className="flex-1 bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-sky-500/20 transition-all appearance-none cursor-pointer text-center uppercase tracking-tight"
+                          >
+                            <option value="all">Todas las Competiciones</option>
+                            {matchStats.availableCompetitions.map(comp => (
+                              <option key={comp} value={comp}>{comp}</option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+
+                      {matchStats.loading ? (
+                        <div className="flex flex-col items-center justify-center py-20 gap-4">
+                          <div className="w-8 h-8 border-4 border-sky-500 border-t-transparent rounded-full animate-spin"></div>
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Cargando estadísticas...</p>
+                        </div>
                       ) : (
                         <div className="space-y-6">
-                          {/* 1. KPI HIGHLIGHT CARDS: SESIONES GRUPALES PARTICIPADAS */}
+                          {/* Main Stats Cards */}
                           <div className="grid grid-cols-2 gap-4">
                             <div className="bg-slate-900 p-5 rounded-3xl text-white shadow-xl shadow-slate-200 relative overflow-hidden border border-slate-800">
                               <div className="flex items-center justify-between mb-2">
-                                <Users className="w-5 h-5 text-sky-400" />
-                                <span className="text-[9px] font-black tracking-widest text-slate-400 uppercase">Grupales</span>
+                                <Trophy className="w-5 h-5 text-sky-400 opacity-60" />
+                                <span className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Partidos</span>
                               </div>
-                              <p className="text-4xl font-black text-sky-400">{gymStats.totalGroupSessions}</p>
-                              <p className="text-[10px] font-bold mt-1 text-slate-300">Sesiones Grupales Participadas</p>
+                              <p className="text-4xl font-black text-white">{matchStats.matchesPlayed}</p>
+                              <div className="flex items-center gap-2 mt-1">
+                                <span className="text-[10px] font-bold text-slate-400 uppercase">{matchStats.starts} Tit.</span>
+                                <span className="text-[10px] font-bold text-slate-500">•</span>
+                                <span className="text-[10px] font-bold text-slate-400 uppercase">{matchStats.subEntries} Sup.</span>
+                              </div>
                             </div>
 
-                            <div className="bg-gradient-to-br from-sky-500 to-sky-600 p-5 rounded-3xl text-white shadow-xl shadow-sky-200 relative overflow-hidden">
+                            <div className="bg-sky-500 p-5 rounded-3xl text-white shadow-xl shadow-sky-100 relative overflow-hidden border border-sky-400">
                               <div className="flex items-center justify-between mb-2">
-                                <Activity className="w-5 h-5 text-white/80" />
-                                <span className="text-[9px] font-black tracking-widest text-white/70 uppercase">Ejercicios</span>
+                                <Clock className="w-5 h-5 opacity-60" />
+                                <span className="text-[10px] font-black tracking-widest opacity-60 uppercase">Minutos</span>
                               </div>
-                              <p className="text-4xl font-black">{gymStats.totalExercises}</p>
-                              <p className="text-[10px] font-bold mt-1 text-sky-100">Ejercicios Realizados</p>
+                              <p className="text-4xl font-black">{matchStats.minutes}</p>
+                              <div className="flex items-center gap-2 mt-1">
+                                <span className="text-[10px] font-bold opacity-80 uppercase">{matchStats.startsMinutes} Tit.</span>
+                                <span className="text-[10px] font-bold opacity-50">•</span>
+                                <span className="text-[10px] font-bold opacity-80 uppercase">{matchStats.subMinutes} Sup.</span>
+                              </div>
                             </div>
                           </div>
 
-                          {/* 2. BREAKDOWN: SESIONES POR TIPO */}
-                          <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
-                            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                              <div className="flex items-center gap-2">
-                                <Layers className="w-4 h-4 text-sky-500" />
-                                <h5 className="text-xs font-black text-slate-900 uppercase tracking-wider">Sesiones por Tipo</h5>
+                          {/* Minutes by Position Section */}
+                          {Object.keys(matchStats.minutesByPosition).length > 0 && (
+                            <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200/80 shadow-sm space-y-4">
+                              <div className="flex items-center justify-between border-b border-slate-200/60 pb-3">
+                                <div className="flex items-center gap-2">
+                                  <Users className="w-4 h-4 text-sky-500" />
+                                  <h5 className="text-[10px] font-black text-slate-900 uppercase tracking-widest">Minutos por Posición</h5>
+                                </div>
+                                <span className="text-[10px] font-black text-slate-400 bg-white border border-slate-200 px-2 py-0.5 rounded-full uppercase">
+                                  {Object.keys(matchStats.minutesByPosition).length} Pos.
+                                </span>
                               </div>
-                              <span className="text-[10px] font-extrabold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg">
-                                {Object.keys(gymStats.sessionsByType).length} Tipos
-                              </span>
-                            </div>
-
-                            {Object.keys(gymStats.sessionsByType).length === 0 ? (
-                              <div className="py-6 text-center space-y-1">
-                                <p className="text-xs font-bold text-slate-500">Sin registros por tipo de sesión</p>
-                                <p className="text-[10px] text-slate-400">Las sesiones de gimnasio registradas no tienen tipo categorizado aún.</p>
-                              </div>
-                            ) : (
-                              <div className="space-y-3">
-                                {Object.entries(gymStats.sessionsByType).map(([type, count]) => {
-                                  const total = gymStats.totalGroupSessions || 1;
-                                  const percentage = Math.round((count / total) * 100);
-                                  return (
-                                    <div key={type} className="space-y-1.5">
-                                      <div className="flex items-center justify-between text-xs font-bold text-slate-700">
-                                        <span className="flex items-center gap-2">
-                                          <span className="w-2.5 h-2.5 rounded-full bg-sky-500 shadow-2xs"></span>
-                                          {type}
-                                        </span>
-                                        <span className="text-slate-900 font-black">
-                                          {count} {count === 1 ? 'sesión' : 'sesiones'} <span className="text-[10px] text-slate-400 font-normal">({percentage}%)</span>
-                                        </span>
-                                      </div>
-                                      <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden p-0.5">
-                                        <div 
-                                          className="bg-sky-500 h-1.5 rounded-full transition-all duration-500"
-                                          style={{ width: `${Math.min(100, Math.max(6, percentage))}%` }}
-                                        ></div>
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </div>
-
-                          {/* 3. BREAKDOWN: EJERCICIOS POR GRUPO MUSCULAR */}
-                          <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
-                            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                              <div className="flex items-center gap-2">
-                                <Target className="w-4 h-4 text-emerald-500" />
-                                <h5 className="text-xs font-black text-slate-900 uppercase tracking-wider">Ejercicios por Grupo Muscular</h5>
-                              </div>
-                              <span className="text-[10px] font-extrabold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg">
-                                {gymStats.totalExercises} Ejercicios Totales
-                              </span>
-                            </div>
-
-                            {Object.keys(gymStats.exercisesByMuscleGroup).length === 0 ? (
-                              <div className="py-6 text-center space-y-1">
-                                <p className="text-xs font-bold text-slate-500">Sin ejercicios clasificados</p>
-                                <p className="text-[10px] text-slate-400">Los ejercicios de las sesiones participadas no especifican grupo muscular.</p>
-                              </div>
-                            ) : (
-                              <div className="space-y-3">
-                                {Object.entries(gymStats.exercisesByMuscleGroup)
+                              
+                              <div className="grid grid-cols-1 gap-2.5">
+                                {Object.entries(matchStats.minutesByPosition)
                                   .sort((a, b) => b[1] - a[1])
-                                  .map(([group, count]) => {
-                                    const totalEx = gymStats.totalExercises || 1;
-                                    const percentage = Math.round((count / totalEx) * 100);
+                                  .map(([pos, min]) => {
+                                    const percentage = Math.round((min / matchStats.minutes) * 100);
                                     return (
-                                      <div key={group} className="p-3.5 bg-slate-50/80 hover:bg-slate-50 border border-slate-200/70 rounded-xl space-y-2 transition-colors">
-                                        <div className="flex items-center justify-between gap-2">
-                                          <span className="text-xs font-black text-slate-800 flex items-center gap-2">
-                                            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0"></span>
-                                            {group}
+                                      <div key={pos} className="space-y-1.5">
+                                        <div className="flex items-center justify-between text-[11px] font-black uppercase tracking-tight">
+                                          <span className="text-slate-600 flex items-center gap-2">
+                                            <div className="w-1.5 h-1.5 rounded-full bg-sky-500" />
+                                            {pos}
                                           </span>
-                                          <span className="text-xs font-black text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200/70 shadow-2xs whitespace-nowrap">
-                                            {count} {count === 1 ? 'ejercicio' : 'ejercicios'}
+                                          <span className="text-slate-900">
+                                            {min} <span className="text-[9px] text-slate-400 font-bold ml-0.5">MIN.</span>
                                           </span>
                                         </div>
-                                        <div className="flex items-center gap-3">
-                                          <div className="flex-1 bg-slate-200/70 rounded-full h-2 overflow-hidden">
-                                            <div 
-                                              className="bg-emerald-500 h-2 rounded-full transition-all duration-500"
-                                              style={{ width: `${Math.min(100, Math.max(5, percentage))}%` }}
-                                            ></div>
-                                          </div>
-                                          <span className="text-[10px] font-bold text-slate-400 shrink-0">{percentage}% del total</span>
+                                        <div className="w-full bg-white rounded-full h-1.5 overflow-hidden border border-slate-100">
+                                          <motion.div 
+                                            initial={{ width: 0 }}
+                                            animate={{ width: `${percentage}%` }}
+                                            className="bg-sky-500 h-full rounded-full"
+                                          />
                                         </div>
                                       </div>
                                     );
                                   })}
                               </div>
-                            )}
-                          </div>
-
-                          {/* 4. HISTORIAL RECIENTE DE SESIONES DE GIMNASIO */}
-                          {gymStats.recentSessions.length > 0 && (
-                            <div className="bg-slate-50/90 p-4 rounded-2xl border border-slate-200/70 space-y-3">
-                              <div className="flex items-center justify-between border-b border-slate-200/60 pb-2">
-                                <h5 className="text-[11px] font-black text-slate-700 uppercase tracking-wider">Historial Reciente de Gimnasio</h5>
-                                <span className="text-[9px] font-bold text-slate-400">Últimas {gymStats.recentSessions.length}</span>
-                              </div>
-                              <div className="space-y-2">
-                                {gymStats.recentSessions.map(session => (
-                                  <div key={session.id} className="p-3 bg-white rounded-xl border border-slate-200/60 shadow-2xs flex items-center justify-between">
-                                    <div className="space-y-0.5">
-                                      <p className="text-xs font-black text-slate-900">{session.routine}</p>
-                                      <div className="flex items-center gap-2">
-                                        <span className="text-[10px] text-slate-400 font-bold">{session.date}</span>
-                                        <span className="text-[9px] font-black uppercase px-2 py-0.5 bg-sky-50 text-sky-700 rounded-md border border-sky-100">
-                                          {session.sessionTypeCategory || 'Gimnasio'}
-                                        </span>
-                                      </div>
-                                    </div>
-                                    <div className="text-right">
-                                      <span className="text-xs font-extrabold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-lg">
-                                        {session.exercisesCount} {session.exercisesCount === 1 ? 'ejercicio' : 'ejercicios'}
-                                      </span>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
                             </div>
                           )}
+
+                          {/* Secondary Stats Breakdown */}
+                          <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
+                            <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2">Rendimiento en Campo</h5>
+                            
+                            <div className="grid grid-cols-2 gap-y-6 gap-x-4">
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2 text-slate-500">
+                                  <Target className="w-3.5 h-3.5" />
+                                  <span className="text-[10px] font-black uppercase tracking-wider">Goles</span>
+                                </div>
+                                <p className="text-2xl font-black text-slate-900">{matchStats.goals}</p>
+                              </div>
+
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2 text-slate-500">
+                                  <Activity className="w-3.5 h-3.5" />
+                                  <span className="text-[10px] font-black uppercase tracking-wider">Remates (Puerta)</span>
+                                </div>
+                                <p className="text-2xl font-black text-slate-900">
+                                  {matchStats.shots} <span className="text-slate-400 text-sm">({matchStats.shotsOnTarget})</span>
+                                </p>
+                              </div>
+
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2 text-slate-500">
+                                  <TrendingUp className="w-3.5 h-3.5" />
+                                  <span className="text-[10px] font-black uppercase tracking-wider">Precisión</span>
+                                </div>
+                                <p className="text-2xl font-black text-slate-900">
+                                  {matchStats.shots > 0 ? Math.round((matchStats.shotsOnTarget / matchStats.shots) * 100) : 0}%
+                                </p>
+                              </div>
+
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2 text-slate-500">
+                                  <Activity className="w-3.5 h-3.5 text-amber-500" />
+                                  <span className="text-[10px] font-black uppercase tracking-wider">Tarjetas</span>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                  <div className="flex items-center gap-1.5">
+                                    <div className="w-3 h-4 bg-amber-400 rounded-xs shadow-2xs border border-amber-500/30" />
+                                    <span className="text-lg font-black text-slate-900">{matchStats.yellowCards}</span>
+                                  </div>
+                                  <div className="flex items-center gap-1.5">
+                                    <div className="w-3 h-4 bg-rose-500 rounded-xs shadow-2xs border border-rose-600/30" />
+                                    <span className="text-lg font-black text-slate-900">{matchStats.redCards}</span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="p-4 bg-slate-50 border border-slate-100 rounded-2xl">
+                             <div className="flex items-center gap-3">
+                               <div className="w-8 h-8 rounded-full bg-sky-100 flex items-center justify-center">
+                                 <TrendingUp className="w-4 h-4 text-sky-600" />
+                               </div>
+                               <div>
+                                 <p className="text-[11px] font-black text-slate-800 uppercase tracking-tight">Rendimiento Promedio</p>
+                                 <p className="text-[10px] font-bold text-slate-500">
+                                   {matchStats.matchesPlayed > 0 
+                                     ? `${(matchStats.minutes / matchStats.matchesPlayed).toFixed(1)} min / ${(matchStats.goals / matchStats.matchesPlayed).toFixed(2)} goles por partido`
+                                     : 'Sin datos de partidos finalizados registrados.'}
+                                 </p>
+                               </div>
+                             </div>
+                          </div>
                         </div>
                       )}
                     </div>

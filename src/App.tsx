@@ -405,6 +405,7 @@ export default function App() {
               <StatsView 
                 season={selectedSeason} 
                 selectedTeam={selectedTeam} 
+                teams={currentTeams}
               />
             )}
           </motion.div>

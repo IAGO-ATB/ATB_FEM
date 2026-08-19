@@ -4,6 +4,8 @@ import { ArrowLeft, UserPlus, Search, Filter, Mail, Phone, MoreHorizontal, X, Tr
 import { Team, Player } from '../types';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabase';
+import { db } from '../lib/firebase';
+import { collection, getDocs } from 'firebase/firestore';
 import { ImageCropper } from './ImageCropper';
 import { uploadImage } from '../lib/upload';
 
@@ -137,28 +139,48 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
   const fetchPlayerMatchStats = async (playerId: string) => {
     setMatchStats(prev => ({ ...prev, loading: true }));
     try {
-      if (!supabase) return;
+      // 1. Fetch matches from Supabase
+      let finalData: any[] = [];
+      if (supabase) {
+        try {
+          const { data, error } = await supabase
+            .from('matches')
+            .select('*')
+            .eq('status', 'finished');
 
-      // Fetch all matches that might have stats
-      const { data, error } = await supabase
-        .from('matches')
-        .select('*')
-        .eq('status', 'finished');
-
-      let finalData = data || [];
-
-      if (error && (error.code === '42P01' || error.message?.includes('does not exist'))) {
-        // Fallback to calendar_matches if matches table doesn't exist
-        const { data: calData, error: calError } = await supabase
-          .from('calendar_matches')
-          .select('*')
-          .eq('status', 'finished');
-        
-        if (calError) throw calError;
-        finalData = calData || [];
-      } else if (error) {
-        throw error;
+          if (error && (error.code === '42P01' || error.message?.includes('does not exist'))) {
+            const { data: calData } = await supabase
+              .from('calendar_matches')
+              .select('*')
+              .eq('status', 'finished');
+            finalData = calData || [];
+          } else {
+            finalData = data || [];
+          }
+        } catch (e) {}
       }
+
+      // 2. Fetch all match stats from Firestore for cross-user synchronization
+      const firestoreStatsByMatch: Record<string, any[]> = {};
+      try {
+        const snap = await getDocs(collection(db, 'match_stats'));
+        snap.forEach(docSnap => {
+          const d = docSnap.data();
+          if (d && d.playerStats && Array.isArray(d.playerStats)) {
+            firestoreStatsByMatch[docSnap.id] = d.playerStats;
+            if (d.matchId) firestoreStatsByMatch[String(d.matchId)] = d.playerStats;
+          }
+        });
+      } catch (e) {}
+
+      // 3. Attach hydrated stats to matches
+      finalData = finalData.map(m => {
+        const mId = String(m.id);
+        if (firestoreStatsByMatch[mId]) {
+          return { ...m, playerStats: firestoreStatsByMatch[mId] };
+        }
+        return m;
+      });
 
       setRawMatchesData(finalData);
       processMatchData(finalData, playerId, matchCompetitionFilter);

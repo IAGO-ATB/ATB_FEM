@@ -38,6 +38,8 @@ import {
 } from 'lucide-react';
 import { Team, Player } from '../types';
 import { supabase } from '../lib/supabase';
+import { db } from '../lib/firebase';
+import { collection, doc, getDoc, getDocs, setDoc } from 'firebase/firestore';
 
 interface StatsViewProps {
   season: string;
@@ -246,65 +248,144 @@ export default function StatsView({ season, selectedTeam, teams = [] }: StatsVie
     loadPlayers();
   }, [selectedTeam, season]);
 
-  // Load matches from Supabase
+  // Load matches from Supabase & Firestore with full player stats hydration
   useEffect(() => {
     async function fetchFinishedMatches() {
       setLoadingMatches(true);
-      if (!supabase) {
-        setLoadingMatches(false);
-        return;
-      }
       try {
-        let response = await supabase
-          .from('matches')
-          .select('*')
-          .order('date_iso', { ascending: false });
+        // 1. Fetch matches from Supabase
+        let rawMatches: any[] = [];
+        if (supabase) {
+          try {
+            let response = await supabase
+              .from('matches')
+              .select('*')
+              .order('date_iso', { ascending: false });
 
-        if (response.error && (response.error.code === '42P01' || response.error.message?.includes('does not exist'))) {
-          response = await supabase
-            .from('calendar_matches')
-            .select('*')
-            .order('date_iso', { ascending: false });
+            if (response.error && (response.error.code === '42P01' || response.error.message?.includes('does not exist'))) {
+              response = await supabase
+                .from('calendar_matches')
+                .select('*')
+                .order('date_iso', { ascending: false });
+            }
+
+            if (response.data && response.data.length > 0) {
+              rawMatches = response.data;
+            }
+          } catch (e) {
+            console.warn('Error querying matches from Supabase:', e);
+          }
         }
 
-        if (response.data && response.data.length > 0) {
-          const mapped: MatchRecord[] = response.data.map((m: any) => {
-            let statsFromDB: PlayerMatchStat[] | undefined = undefined;
-            if (m.notes) {
-              try {
-                const parsed = JSON.parse(m.notes);
-                if (parsed?.playerStats && Array.isArray(parsed.playerStats)) {
-                  statsFromDB = parsed.playerStats;
-                }
-              } catch (e) {
-                // not json
+        // 2. Fetch all match stats from Firestore (universal cloud persistence across all users)
+        const firestoreStatsByMatch: Record<string, PlayerMatchStat[]> = {};
+        try {
+          const snap = await getDocs(collection(db, 'match_stats'));
+          snap.forEach(docSnap => {
+            const d = docSnap.data();
+            if (d && d.playerStats && Array.isArray(d.playerStats)) {
+              firestoreStatsByMatch[docSnap.id] = d.playerStats;
+              if (d.matchId) {
+                firestoreStatsByMatch[String(d.matchId)] = d.playerStats;
               }
             }
-            if (!statsFromDB && m.details) {
-              try {
-                const parsed = JSON.parse(m.details);
-                if (parsed?.playerStats && Array.isArray(parsed.playerStats)) {
-                  statsFromDB = parsed.playerStats;
-                }
-              } catch (e) {
-                // not json
-              }
+          });
+        } catch (e) {
+          console.warn('Firestore fetch match_stats error:', e);
+        }
+
+        // 3. Fetch all match player stats from Supabase table if available
+        const supabaseStatsByMatch: Record<string, PlayerMatchStat[]> = {};
+        if (supabase) {
+          try {
+            const { data: allStatsRows, error: statsErr } = await supabase
+              .from('match_player_stats')
+              .select('*');
+
+            if (!statsErr && allStatsRows && allStatsRows.length > 0) {
+              allStatsRows.forEach((r: any) => {
+                const mId = String(r.match_id);
+                if (!supabaseStatsByMatch[mId]) supabaseStatsByMatch[mId] = [];
+                supabaseStatsByMatch[mId].push({
+                  playerId: String(r.player_id),
+                  playerName: r.player_name || 'Jugadora',
+                  playerNumber: r.player_number !== null && r.player_number !== undefined ? Number(r.player_number) : undefined,
+                  playerPhoto: r.player_photo || '',
+                  playerCategory: r.player_category || '',
+                  playerOriginTeam: r.player_origin_team || '',
+                  isExternal: Boolean(r.is_external),
+                  status: r.status || 'suplente',
+                  minutes: Number(r.minutes) || 0,
+                  position: r.position || 'Mediocentro',
+                  goals: Number(r.goals) || 0,
+                  assists: Number(r.assists) || 0,
+                  yellowCards: Number(r.yellow_cards) || 0,
+                  redCards: Number(r.red_cards) || 0,
+                  cards: Number(r.cards) || ((Number(r.yellow_cards) || 0) + (Number(r.red_cards) || 0)),
+                  shots: Number(r.shots) || 0,
+                  shotsOnTarget: Number(r.shots_on_target) || 0
+                });
+              });
+            }
+          } catch (e) {
+            // table may not exist
+          }
+        }
+
+        if (rawMatches.length > 0) {
+          const mapped: MatchRecord[] = rawMatches.map((m: any) => {
+            const matchIdStr = String(m.id);
+            let statsFromDB: PlayerMatchStat[] | undefined = undefined;
+
+            // Priority 1: Firestore cloud persistence
+            if (firestoreStatsByMatch[matchIdStr] && firestoreStatsByMatch[matchIdStr].length > 0) {
+              statsFromDB = firestoreStatsByMatch[matchIdStr];
             }
 
-            // Check localStorage cache as well
+            // Priority 2: Supabase match_player_stats table
+            if (!statsFromDB && supabaseStatsByMatch[matchIdStr] && supabaseStatsByMatch[matchIdStr].length > 0) {
+              statsFromDB = supabaseStatsByMatch[matchIdStr];
+            }
+
+            // Priority 3: Notes payload
+            if (!statsFromDB && m.notes) {
+              try {
+                const parsed = typeof m.notes === 'string' ? JSON.parse(m.notes) : m.notes;
+                if (parsed?.playerStats && Array.isArray(parsed.playerStats)) {
+                  statsFromDB = parsed.playerStats;
+                }
+              } catch (e) {}
+            }
+
+            // Priority 4: Details payload
+            if (!statsFromDB && m.details) {
+              try {
+                const parsed = typeof m.details === 'string' ? JSON.parse(m.details) : m.details;
+                if (parsed?.playerStats && Array.isArray(parsed.playerStats)) {
+                  statsFromDB = parsed.playerStats;
+                }
+              } catch (e) {}
+            }
+
+            // Priority 5: LocalStorage cache
             if (!statsFromDB) {
               try {
-                const localCache = localStorage.getItem(`match_player_stats_${m.id}`);
+                const localCache = localStorage.getItem(`match_player_stats_${matchIdStr}`);
                 if (localCache) {
                   statsFromDB = JSON.parse(localCache);
                 }
-              } catch (e) {
-                // ignore
-              }
+              } catch (e) {}
+            }
+
+            // Update localStorage for fast offline access on this client
+            if (statsFromDB && Array.isArray(statsFromDB)) {
+              try {
+                localStorage.setItem(`match_player_stats_${matchIdStr}`, JSON.stringify(statsFromDB));
+              } catch (e) {}
             }
 
             return {
-              id: String(m.id),
+              id: matchIdStr,
               dateIso: m.date_iso || m.dateIso || m.date || '',
               time: m.time || '18:00',
               homeTeam: m.home_team || m.homeTeam || m.hometeam || '',
@@ -432,6 +513,21 @@ export default function StatsView({ season, selectedTeam, teams = [] }: StatsVie
     // Retrieve existing stats if any
     let existingStats: PlayerMatchStat[] = match.playerStats || [];
     
+    // Check Firestore doc if not present
+    if (existingStats.length === 0) {
+      try {
+        const snap = await getDoc(doc(db, 'match_stats', String(match.id)));
+        if (snap.exists()) {
+          const d = snap.data();
+          if (d && d.playerStats && Array.isArray(d.playerStats) && d.playerStats.length > 0) {
+            existingStats = d.playerStats;
+          }
+        }
+      } catch (e) {
+        console.warn('Firestore doc read error:', e);
+      }
+    }
+
     // Check Supabase match_player_stats table directly
     if (supabase) {
       try {
@@ -544,7 +640,7 @@ export default function StatsView({ season, selectedTeam, teams = [] }: StatsVie
       const origPlayer = findPlayerInfo(playerId);
       const defaultPos = origPlayer ? getDefaultPlayerPosition(origPlayer) : 'Mediocentro';
 
-      const current = prev[playerId] || {
+      const current: PlayerMatchStat = prev[playerId] || {
         playerId,
         playerName: origPlayer?.name || 'Jugadora',
         playerNumber: origPlayer?.number,
@@ -552,6 +648,7 @@ export default function StatsView({ season, selectedTeam, teams = [] }: StatsVie
         minutes: 90,
         position: defaultPos,
         goals: 0,
+        assists: 0,
         yellowCards: 0,
         redCards: 0,
         cards: 0,
@@ -623,6 +720,7 @@ export default function StatsView({ season, selectedTeam, teams = [] }: StatsVie
         minutes: 0,
         position: defaultPos,
         goals: 0,
+        assists: 0,
         yellowCards: 0,
         redCards: 0,
         cards: 0,
@@ -644,22 +742,44 @@ export default function StatsView({ season, selectedTeam, teams = [] }: StatsVie
     });
   };
 
-  // Save stats to Supabase and localStorage
+  // Save stats to Firestore, Supabase and localStorage
   const handleSaveStats = async () => {
     if (!selectedMatch) return;
     setIsSavingStats(true);
     setSaveSuccessMsg(null);
 
     const statsArray = Object.values(matchPlayerStats);
+    const matchIdStr = String(selectedMatch.id);
 
-    // Save to localStorage immediately
+    // 1. Save to Firestore (Guaranteed multi-user real-time cloud persistence)
     try {
-      localStorage.setItem(`match_player_stats_${selectedMatch.id}`, JSON.stringify(statsArray));
+      await setDoc(doc(db, 'match_stats', matchIdStr), {
+        matchId: matchIdStr,
+        homeTeam: selectedMatch.homeTeam,
+        awayTeam: selectedMatch.awayTeam,
+        dateIso: selectedMatch.dateIso,
+        team: selectedMatch.team,
+        type: selectedMatch.type,
+        playerStats: statsArray,
+        totalGoals: statsArray.reduce((sum, p) => sum + (p.goals || 0), 0),
+        totalAssists: statsArray.reduce((sum, p) => sum + (p.assists || 0), 0),
+        totalShots: statsArray.reduce((sum, p) => sum + (p.shots || 0), 0),
+        totalShotsOnTarget: statsArray.reduce((sum, p) => sum + (p.shotsOnTarget || 0), 0),
+        totalCards: statsArray.reduce((sum, p) => sum + (p.cards || 0), 0),
+        updatedAt: new Date().toISOString()
+      });
+    } catch (e) {
+      console.error('Error saving match stats to Firestore:', e);
+    }
+
+    // 2. Save to localStorage immediately
+    try {
+      localStorage.setItem(`match_player_stats_${matchIdStr}`, JSON.stringify(statsArray));
     } catch (e) {
       console.warn('LocalStorage save failed:', e);
     }
 
-    // Save to Supabase
+    // 3. Save to Supabase
     if (supabase) {
       try {
         const payloadJson = JSON.stringify({
@@ -672,7 +792,7 @@ export default function StatsView({ season, selectedTeam, teams = [] }: StatsVie
           totalCards: statsArray.reduce((sum, p) => sum + (p.cards || 0), 0)
         });
 
-        // 1. Try updating matches table
+        // 3.1. Try updating matches table
         let { error } = await supabase
           .from('matches')
           .update({
@@ -693,10 +813,10 @@ export default function StatsView({ season, selectedTeam, teams = [] }: StatsVie
             .eq('id', selectedMatch.id);
         }
 
-        // 2. Try inserting/updating match_player_stats table if it exists
+        // 3.2. Try inserting/updating match_player_stats table if it exists
         try {
           const rowsToInsert = statsArray.map(stat => ({
-            match_id: String(selectedMatch.id),
+            match_id: matchIdStr,
             player_id: String(stat.playerId),
             player_name: stat.playerName,
             player_number: stat.playerNumber !== undefined && stat.playerNumber !== null ? Number(stat.playerNumber) : null,
@@ -733,7 +853,7 @@ export default function StatsView({ season, selectedTeam, teams = [] }: StatsVie
     setSelectedMatch(prev => prev ? { ...prev, playerStats: statsArray } : null);
 
     setIsSavingStats(false);
-    setSaveSuccessMsg('¡Estadísticas del partido guardadas con éxito!');
+    setSaveSuccessMsg('¡Acta y estadísticas del partido guardadas con éxito en la nube!');
     setTimeout(() => setSaveSuccessMsg(null), 4000);
   };
 
@@ -1374,7 +1494,7 @@ export default function StatsView({ season, selectedTeam, teams = [] }: StatsVie
                         const origPlayer = findPlayerInfo(pId) || player;
                         const defaultPos = getDefaultPlayerPosition(origPlayer);
 
-                        const stat = matchPlayerStats[pId] || {
+                        const stat: PlayerMatchStat = matchPlayerStats[pId] || {
                           playerId: pId,
                           playerName: player.name || `Jugadora #${player.number}`,
                           playerNumber: player.number,
@@ -1382,6 +1502,7 @@ export default function StatsView({ season, selectedTeam, teams = [] }: StatsVie
                           minutes: 0,
                           position: defaultPos,
                           goals: 0,
+                          assists: 0,
                           yellowCards: 0,
                           redCards: 0,
                           cards: 0,

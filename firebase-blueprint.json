@@ -31,6 +31,17 @@
       },
       "required": ["id", "teamId", "season", "title", "date", "intensity"]
     },
+    "MatchStats": {
+      "title": "Match Player Stats",
+      "description": "Statistics and roster evaluation for a match",
+      "type": "object",
+      "properties": {
+        "matchId": { "type": "string" },
+        "playerStats": { "type": "array" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["matchId", "playerStats"]
+    },
     "AuthorizedUser": {
       "title": "Authorized User",
       "description": "List of users allowed to access the app",
@@ -52,6 +63,10 @@
     "/sessions/{sessionId}": {
       "schema": "TrainingSession",
       "description": "Training sessions"
+    },
+    "/match_stats/{matchId}": {
+      "schema": "MatchStats",
+      "description": "Match player stats and actas"
     },
     "/authorized_users/{email}": {
       "schema": "AuthorizedUser",

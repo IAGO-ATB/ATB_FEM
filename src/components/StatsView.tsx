@@ -59,6 +59,7 @@ export interface PlayerMatchStat {
   minutes: number;
   position: string;
   goals: number;
+  assists: number;
   yellowCards: number;
   redCards: number;
   cards: number;
@@ -86,7 +87,10 @@ export interface MatchRecord {
 export const MATCH_POSITIONS = [
   'Portera',
   'Lateral Derecho',
-  'Central',
+  'Central Derecho',
+  'Central Izquierdo',
+  'Carril Derecho',
+  'Carril Izquierdo',
   'Lateral Izquierdo',
   'Mediocentro',
   'Mediapunta',
@@ -102,7 +106,10 @@ export function getDefaultPlayerPosition(p: Player | Partial<Player>): string {
     if (pe.toLowerCase().includes('port') || pe.toLowerCase().includes('gk')) return 'Portera';
     if (pe.toLowerCase().includes('lat') && pe.toLowerCase().includes('der')) return 'Lateral Derecho';
     if (pe.toLowerCase().includes('lat') && pe.toLowerCase().includes('izq')) return 'Lateral Izquierdo';
-    if (pe.toLowerCase().includes('centr') || pe.toLowerCase().includes('cb')) return 'Central';
+    if (pe.toLowerCase().includes('carril') && pe.toLowerCase().includes('der')) return 'Carril Derecho';
+    if (pe.toLowerCase().includes('carril') && pe.toLowerCase().includes('izq')) return 'Carril Izquierdo';
+    if (pe.toLowerCase().includes('centr') && pe.toLowerCase().includes('izq')) return 'Central Izquierdo';
+    if (pe.toLowerCase().includes('centr') || pe.toLowerCase().includes('cb')) return 'Central Derecho';
     if (pe.toLowerCase().includes('med') || pe.toLowerCase().includes('piv') || pe.toLowerCase().includes('mc')) return 'Mediocentro';
     if (pe.toLowerCase().includes('punta') || pe.toLowerCase().includes('cam')) return 'Mediapunta';
     if (pe.toLowerCase().includes('ext') && pe.toLowerCase().includes('der')) return 'Extremo Derecha';
@@ -114,13 +121,16 @@ export function getDefaultPlayerPosition(p: Player | Partial<Player>): string {
   if (pos.includes('port') || pos.includes('gk')) return 'Portera';
   if (pos.includes('lat') && pos.includes('der')) return 'Lateral Derecho';
   if (pos.includes('lat') && pos.includes('izq')) return 'Lateral Izquierdo';
-  if (pos.includes('centr') || pos.includes('cb')) return 'Central';
+  if (pos.includes('carril') && pos.includes('der')) return 'Carril Derecho';
+  if (pos.includes('carril') && pos.includes('izq')) return 'Carril Izquierdo';
+  if (pos.includes('centr') && pos.includes('izq')) return 'Central Izquierdo';
+  if (pos.includes('centr') || pos.includes('cb')) return 'Central Derecho';
   if (pos.includes('med') || pos.includes('piv') || pos.includes('mc')) return 'Mediocentro';
   if (pos.includes('punta') || pos.includes('cam')) return 'Mediapunta';
   if (pos.includes('ext') && pos.includes('der')) return 'Extremo Derecha';
   if (pos.includes('ext') && pos.includes('izq')) return 'Extremo Izquierda';
   if (pos.includes('del') || pos.includes('dc') || pos.includes('st') || pos.includes('atacante')) return 'Delantera';
-  if (pos.includes('defensora')) return 'Central';
+  if (pos.includes('defensora')) return 'Central Derecho';
   if (pos.includes('centrocampista')) return 'Mediocentro';
 
   return 'Mediocentro';
@@ -198,7 +208,7 @@ export default function StatsView({ season, selectedTeam, teams = [] }: StatsVie
   }, [matches]);
 
   // Sorting state for the individual ranking table (Default: dorsal/number ascending)
-  const [rankingSortField, setRankingSortField] = useState<'number' | 'minutes' | 'goals' | 'shots' | 'shotsOnTarget' | 'cards'>('number');
+  const [rankingSortField, setRankingSortField] = useState<'number' | 'minutes' | 'goals' | 'assists' | 'shots' | 'shotsOnTarget' | 'cards'>('number');
   const [rankingSortDirection, setRankingSortDirection] = useState<'asc' | 'desc'>('asc');
 
   // Load all players strictly from Supabase database
@@ -443,6 +453,7 @@ export default function StatsView({ season, selectedTeam, teams = [] }: StatsVie
             minutes: Number(r.minutes) || 0,
             position: r.position || 'Mediocentro',
             goals: Number(r.goals) || 0,
+            assists: Number(r.assists) || 0,
             yellowCards: Number(r.yellow_cards) || 0,
             redCards: Number(r.red_cards) || 0,
             cards: Number(r.cards) || ((Number(r.yellow_cards) || 0) + (Number(r.red_cards) || 0)),
@@ -514,6 +525,7 @@ export default function StatsView({ season, selectedTeam, teams = [] }: StatsVie
           minutes: isDefaultStarter ? 90 : 0,
           position: defaultPos,
           goals: 0,
+          assists: 0,
           yellowCards: 0,
           redCards: 0,
           cards: 0,
@@ -562,6 +574,7 @@ export default function StatsView({ season, selectedTeam, teams = [] }: StatsVie
         } else if (newStatus === 'nc' || newStatus === 'lesionada') {
           updated.minutes = 0;
           updated.goals = 0;
+          updated.assists = 0;
           updated.shots = 0;
           updated.shotsOnTarget = 0;
           updated.yellowCards = 0;
@@ -653,6 +666,7 @@ export default function StatsView({ season, selectedTeam, teams = [] }: StatsVie
           playerStats: statsArray,
           lastUpdated: new Date().toISOString(),
           totalGoals: statsArray.reduce((sum, p) => sum + (p.goals || 0), 0),
+          totalAssists: statsArray.reduce((sum, p) => sum + (p.assists || 0), 0),
           totalShots: statsArray.reduce((sum, p) => sum + (p.shots || 0), 0),
           totalShotsOnTarget: statsArray.reduce((sum, p) => sum + (p.shotsOnTarget || 0), 0),
           totalCards: statsArray.reduce((sum, p) => sum + (p.cards || 0), 0)
@@ -694,6 +708,7 @@ export default function StatsView({ season, selectedTeam, teams = [] }: StatsVie
             minutes: Number(stat.minutes) || 0,
             position: stat.position || 'Mediocentro',
             goals: Number(stat.goals) || 0,
+            assists: Number(stat.assists) || 0,
             yellow_cards: Number(stat.yellowCards) || 0,
             red_cards: Number(stat.redCards) || 0,
             cards: (Number(stat.yellowCards) || 0) + (Number(stat.redCards) || 0),
@@ -730,6 +745,7 @@ export default function StatsView({ season, selectedTeam, teams = [] }: StatsVie
     const ncCount = list.filter(p => p.status === 'nc').length;
     const injuredCount = list.filter(p => p.status === 'lesionada').length;
     const totalGoals = list.reduce((acc, p) => acc + (p.goals || 0), 0);
+    const totalAssists = list.reduce((acc, p) => acc + (p.assists || 0), 0);
     const totalShots = list.reduce((acc, p) => acc + (p.shots || 0), 0);
     const totalShotsOnTarget = list.reduce((acc, p) => acc + (p.shotsOnTarget || 0), 0);
     const totalYellowCards = list.reduce((acc, p) => acc + (p.yellowCards || 0), 0);
@@ -742,6 +758,7 @@ export default function StatsView({ season, selectedTeam, teams = [] }: StatsVie
       ncCount,
       injuredCount,
       totalGoals,
+      totalAssists,
       totalShots,
       totalShotsOnTarget,
       totalYellowCards,
@@ -763,6 +780,7 @@ export default function StatsView({ season, selectedTeam, teams = [] }: StatsVie
       subEntries: number;
       minutes: number;
       goals: number;
+      assists: number;
       yellowCards: number;
       redCards: number;
       cards: number;
@@ -799,6 +817,7 @@ export default function StatsView({ season, selectedTeam, teams = [] }: StatsVie
               subEntries: 0,
               minutes: 0,
               goals: 0,
+              assists: 0,
               yellowCards: 0,
               redCards: 0,
               cards: 0,
@@ -818,6 +837,7 @@ export default function StatsView({ season, selectedTeam, teams = [] }: StatsVie
 
           agg.minutes += (stat.minutes || 0);
           agg.goals += (stat.goals || 0);
+          agg.assists += (stat.assists || 0);
           agg.yellowCards += (stat.yellowCards || 0);
           agg.redCards += (stat.redCards || 0);
           agg.cards += ((stat.yellowCards || 0) + (stat.redCards || 0));
@@ -831,7 +851,7 @@ export default function StatsView({ season, selectedTeam, teams = [] }: StatsVie
   }, [matches, selectedCompetition, selectedTeam]);
 
   // Sort handler for the individual ranking table
-  const handleSortRanking = (field: 'number' | 'minutes' | 'goals' | 'shots' | 'shotsOnTarget' | 'cards') => {
+  const handleSortRanking = (field: 'number' | 'minutes' | 'goals' | 'assists' | 'shots' | 'shotsOnTarget' | 'cards') => {
     if (rankingSortField === field) {
       setRankingSortDirection(prev => (prev === 'asc' ? 'desc' : 'asc'));
     } else {
@@ -888,7 +908,7 @@ export default function StatsView({ season, selectedTeam, teams = [] }: StatsVie
   }, [aggregatedRankings, rankingSortField, rankingSortDirection]);
 
   // Helper to render sort icon indicator on ranking table headers
-  const renderSortIndicator = (field: 'number' | 'minutes' | 'goals' | 'shots' | 'shotsOnTarget' | 'cards') => {
+  const renderSortIndicator = (field: 'number' | 'minutes' | 'goals' | 'assists' | 'shots' | 'shotsOnTarget' | 'cards') => {
     if (rankingSortField !== field) {
       return <ArrowUpDown className="w-3 h-3 text-slate-300 opacity-60 group-hover:opacity-100 transition-opacity shrink-0" />;
     }
@@ -1335,6 +1355,7 @@ export default function StatsView({ season, selectedTeam, teams = [] }: StatsVie
                       <th className="py-3 px-3 min-w-[100px] text-center">Minutos</th>
                       <th className="py-3 px-3 min-w-[160px]">Posición</th>
                       <th className="py-3 px-3 min-w-[90px] text-center">Goles</th>
+                      <th className="py-3 px-3 min-w-[100px] text-center">Asistencias</th>
                       <th className="py-3 px-3 min-w-[110px] text-center">Tarjetas</th>
                       <th className="py-3 px-3 min-w-[90px] text-center">Remates</th>
                       <th className="py-3 px-3 min-w-[110px] text-center">A Puerta</th>
@@ -1343,7 +1364,7 @@ export default function StatsView({ season, selectedTeam, teams = [] }: StatsVie
                   <tbody className="divide-y divide-slate-100">
                     {filteredSquadList.length === 0 ? (
                       <tr>
-                        <td colSpan={9} className="py-12 text-center text-slate-400 font-bold">
+                        <td colSpan={10} className="py-12 text-center text-slate-400 font-bold">
                           No se encontraron jugadoras con los filtros actuales.
                         </td>
                       </tr>
@@ -1478,6 +1499,17 @@ export default function StatsView({ season, selectedTeam, teams = [] }: StatsVie
                             )}
                           </td>
 
+                          {/* 6.5. ASISTENCIAS */}
+                          <td className="py-3.5 px-3 text-center">
+                            {stat.assists > 0 ? (
+                              <span className="inline-flex items-center gap-1 font-mono font-black text-xs text-indigo-700 bg-indigo-50 border border-indigo-200 px-2.5 py-0.5 rounded-lg">
+                                🎯 {stat.assists}
+                              </span>
+                            ) : (
+                              <span className="font-mono text-slate-300 text-xs font-bold">—</span>
+                            )}
+                          </td>
+
                           {/* 7. TARJETAS */}
                           <td className="py-3.5 px-3 text-center">
                             {stat.yellowCards > 0 || stat.redCards > 0 ? (
@@ -1543,6 +1575,7 @@ export default function StatsView({ season, selectedTeam, teams = [] }: StatsVie
                     <th className="py-3 px-3 min-w-[100px] text-center">MINUTOS</th>
                     <th className="py-3 px-3 min-w-[170px]">POSICIÓN</th>
                     <th className="py-3 px-3 min-w-[100px] text-center">GOLES</th>
+                    <th className="py-3 px-3 min-w-[100px] text-center bg-blue-50 text-blue-700">ASISTENCIAS</th>
                     <th className="py-3 px-3 min-w-[110px] text-center">TARJETAS</th>
                     <th className="py-3 px-3 min-w-[100px] text-center">REMATES</th>
                     <th className="py-3 px-3 min-w-[120px] text-center">REMATES A PUERTA</th>
@@ -1552,7 +1585,7 @@ export default function StatsView({ season, selectedTeam, teams = [] }: StatsVie
                 <tbody className="divide-y divide-slate-100">
                   {filteredSquadList.length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="py-12 text-center text-slate-400 font-bold">
+                      <td colSpan={11} className="py-12 text-center text-slate-400 font-bold">
                         No se encontraron jugadoras con los filtros actuales.
                       </td>
                     </tr>
@@ -1570,6 +1603,7 @@ export default function StatsView({ season, selectedTeam, teams = [] }: StatsVie
                         minutes: 90,
                         position: defaultPos,
                         goals: 0,
+                        assists: 0,
                         yellowCards: 0,
                         redCards: 0,
                         cards: 0,
@@ -1696,6 +1730,31 @@ export default function StatsView({ season, selectedTeam, teams = [] }: StatsVie
                                 disabled={isNC || isInjured}
                                 onClick={() => handleUpdatePlayerField(pId, 'goals', stat.goals + 1)}
                                 className="w-6 h-6 rounded bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 flex items-center justify-center font-bold text-xs disabled:opacity-30 disabled:pointer-events-none"
+                              >
+                                <Plus className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </td>
+
+                          {/* 4.5. ASISTENCIAS */}
+                          <td className="py-3.5 px-3">
+                            <div className="flex items-center justify-center gap-1">
+                              <button
+                                type="button"
+                                disabled={stat.assists <= 0 || isNC || isInjured}
+                                onClick={() => handleUpdatePlayerField(pId, 'assists', Math.max(0, stat.assists - 1))}
+                                className="w-6 h-6 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center font-bold text-xs disabled:opacity-30 disabled:pointer-events-none"
+                              >
+                                <Minus className="w-3 h-3" />
+                              </button>
+                              <span className={`w-8 text-center font-mono font-black text-sm ${stat.assists > 0 ? 'text-indigo-600' : 'text-slate-700'}`}>
+                                {stat.assists}
+                              </span>
+                              <button
+                                type="button"
+                                disabled={isNC || isInjured}
+                                onClick={() => handleUpdatePlayerField(pId, 'assists', (stat.assists || 0) + 1)}
+                                className="w-6 h-6 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 flex items-center justify-center font-bold text-xs disabled:opacity-30 disabled:pointer-events-none"
                               >
                                 <Plus className="w-3 h-3" />
                               </button>
@@ -2129,6 +2188,14 @@ export default function StatsView({ season, selectedTeam, teams = [] }: StatsVie
             </div>
 
             <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Asistencias Totales</p>
+              <p className="text-3xl font-black text-indigo-600 mt-1">
+                {aggregatedRankings.reduce((acc, p) => acc + (p.assists || 0), 0)}
+              </p>
+              <p className="text-[10px] text-slate-500 font-bold mt-2">Pases de gol</p>
+            </div>
+
+            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Remates Totales</p>
               <p className="text-3xl font-black text-purple-600 mt-1">
                 {aggregatedRankings.reduce((acc, p) => acc + (p.shots || 0), 0)}
@@ -2198,6 +2265,16 @@ export default function StatsView({ season, selectedTeam, teams = [] }: StatsVie
                       </div>
                     </th>
                     <th 
+                      onClick={() => handleSortRanking('assists')}
+                      title="Ordenar por Asistencias"
+                      className="py-3 px-3 text-center cursor-pointer hover:text-slate-900 transition-colors select-none group"
+                    >
+                      <div className="flex items-center justify-center gap-1.5">
+                        <span>Asistencias</span>
+                        {renderSortIndicator('assists')}
+                      </div>
+                    </th>
+                    <th 
                       onClick={() => handleSortRanking('shots')}
                       title="Ordenar por Remates"
                       className="py-3 px-3 text-center cursor-pointer hover:text-slate-900 transition-colors select-none group"
@@ -2247,6 +2324,7 @@ export default function StatsView({ season, selectedTeam, teams = [] }: StatsVie
                         </td>
                         <td className="py-3.5 px-3 text-center font-mono font-bold text-slate-700">{player.minutes}'</td>
                         <td className="py-3.5 px-3 text-center font-black text-sky-600 text-sm">{player.goals}</td>
+                        <td className="py-3.5 px-3 text-center font-black text-indigo-600 text-sm">{player.assists}</td>
                         <td className="py-3.5 px-3 text-center font-bold text-slate-800">{player.shots}</td>
                         <td className="py-3.5 px-3 text-center font-bold text-purple-600">{player.shotsOnTarget}</td>
                         <td className="py-3.5 px-3 text-center font-mono text-slate-700">

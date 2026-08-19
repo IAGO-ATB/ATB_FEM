@@ -94,6 +94,7 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
     startsMinutes: number;
     subMinutes: number;
     goals: number;
+    assists: number;
     yellowCards: number;
     redCards: number;
     shots: number;
@@ -109,6 +110,7 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
     startsMinutes: 0,
     subMinutes: 0,
     goals: 0,
+    assists: 0,
     yellowCards: 0,
     redCards: 0,
     shots: 0,
@@ -174,6 +176,7 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
     let startsMinutes = 0;
     let subMinutes = 0;
     let goals = 0;
+    let assists = 0;
     let yellowCards = 0;
     let redCards = 0;
     let shots = 0;
@@ -272,6 +275,7 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
 
       minutes += min;
       goals += Number(stat.goals || 0);
+      assists += Number(stat.assists || 0);
       yellowCards += Number(stat.yellowCards || 0);
       redCards += Number(stat.redCards || 0);
       shots += Number(stat.shots || 0);
@@ -293,6 +297,7 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
       startsMinutes,
       subMinutes,
       goals,
+      assists,
       yellowCards,
       redCards,
       shots,
@@ -1176,7 +1181,10 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
                             <option value="">Seleccionar...</option>
                             <option value="Portera">Portera</option>
                             <option value="Lateral Derecho">Lateral Derecho</option>
-                            <option value="Central">Central</option>
+                            <option value="Central Derecho">Central Derecho</option>
+                            <option value="Central Izquierdo">Central Izquierdo</option>
+                            <option value="Carril Derecho">Carril Derecho</option>
+                            <option value="Carril Izquierdo">Carril Izquierdo</option>
                             <option value="Lateral Izquierdo">Lateral Izquierdo</option>
                             <option value="Mediocentro">Mediocentro</option>
                             <option value="Mediapunta">Mediapunta</option>
@@ -1195,7 +1203,10 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
                             <option value="">Ninguna</option>
                             <option value="Portera">Portera</option>
                             <option value="Lateral Derecho">Lateral Derecho</option>
-                            <option value="Central">Central</option>
+                            <option value="Central Derecho">Central Derecho</option>
+                            <option value="Central Izquierdo">Central Izquierdo</option>
+                            <option value="Carril Derecho">Carril Derecho</option>
+                            <option value="Carril Izquierdo">Carril Izquierdo</option>
                             <option value="Lateral Izquierdo">Lateral Izquierdo</option>
                             <option value="Mediocentro">Mediocentro</option>
                             <option value="Mediapunta">Mediapunta</option>
@@ -1757,6 +1768,14 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
 
                               <div className="space-y-1">
                                 <div className="flex items-center gap-2 text-slate-500">
+                                  <Zap className="w-3.5 h-3.5" />
+                                  <span className="text-[10px] font-black uppercase tracking-wider">Asistencias</span>
+                                </div>
+                                <p className="text-2xl font-black text-slate-900">{matchStats.assists}</p>
+                              </div>
+
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2 text-slate-500">
                                   <Activity className="w-3.5 h-3.5" />
                                   <span className="text-[10px] font-black uppercase tracking-wider">Remates (Puerta)</span>
                                 </div>
@@ -1939,7 +1958,10 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
                       <option value="">Seleccionar...</option>
                       <option value="Portera">Portera</option>
                       <option value="Lateral Derecho">Lateral Derecho</option>
-                      <option value="Central">Central</option>
+                      <option value="Central Derecho">Central Derecho</option>
+                      <option value="Central Izquierdo">Central Izquierdo</option>
+                      <option value="Carril Derecho">Carril Derecho</option>
+                      <option value="Carril Izquierdo">Carril Izquierdo</option>
                       <option value="Lateral Izquierdo">Lateral Izquierdo</option>
                       <option value="Mediocentro">Mediocentro</option>
                       <option value="Mediapunta">Mediapunta</option>
@@ -1983,7 +2005,10 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
                       <option value="">Ninguna</option>
                       <option value="Portera">Portera</option>
                       <option value="Lateral Derecho">Lateral Derecho</option>
-                      <option value="Central">Central</option>
+                      <option value="Central Derecho">Central Derecho</option>
+                      <option value="Central Izquierdo">Central Izquierdo</option>
+                      <option value="Carril Derecho">Carril Derecho</option>
+                      <option value="Carril Izquierdo">Carril Izquierdo</option>
                       <option value="Lateral Izquierdo">Lateral Izquierdo</option>
                       <option value="Mediocentro">Mediocentro</option>
                       <option value="Mediapunta">Mediapunta</option>

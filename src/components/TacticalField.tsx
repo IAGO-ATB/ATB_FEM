@@ -29,8 +29,8 @@ export default function TacticalField({
     { id: 'gk', label: 'Portera', pos: 'Portera', top: '50%', left: '10%' },
     
     { id: 'lb', label: 'Lateral Izq.', pos: 'Lateral Izquierdo', top: '15%', left: '28%' },
-    { id: 'lcb', label: 'Central', pos: 'Central', top: '38%', left: '26%' },
-    { id: 'rcb', label: 'Central', pos: 'Central', top: '62%', left: '26%' },
+    { id: 'lcb', label: 'Central Izq.', pos: 'Central Izquierdo', top: '38%', left: '26%' },
+    { id: 'rcb', label: 'Central Der.', pos: 'Central Derecho', top: '62%', left: '26%' },
     { id: 'rb', label: 'Lateral Der.', pos: 'Lateral Derecho', top: '85%', left: '28%' },
     
     { id: 'lcdm', label: 'Mediocentro', pos: 'Mediocentro', top: '38%', left: '45%' },
@@ -45,8 +45,8 @@ export default function TacticalField({
     { id: 'gk', label: 'Portera', pos: 'Portera', top: '85%', left: '50%' },
     
     { id: 'rb', label: 'Lateral Der.', pos: 'Lateral Derecho', top: '65%', left: '85%' },
-    { id: 'rcb', label: 'Central', pos: 'Central', top: '70%', left: '62%' },
-    { id: 'lcb', label: 'Central', pos: 'Central', top: '70%', left: '38%' },
+    { id: 'rcb', label: 'Central Der.', pos: 'Central Derecho', top: '70%', left: '62%' },
+    { id: 'lcb', label: 'Central Izq.', pos: 'Central Izquierdo', top: '70%', left: '38%' },
     { id: 'lb', label: 'Lateral Izq.', pos: 'Lateral Izquierdo', top: '65%', left: '15%' },
     
     { id: 'rcdm', label: 'Mediocentro', pos: 'Mediocentro', top: '50%', left: '60%' },
@@ -63,9 +63,15 @@ export default function TacticalField({
     // 1. Direct match on posicion_especifica if present and valid (restores original behavior for Plantillas interface)
     if (p.posicion_especifica) {
       const pe = p.posicion_especifica.trim();
-      if (['Portera', 'Lateral Derecho', 'Central', 'Lateral Izquierdo', 'Mediocentro', 'Mediapunta', 'Extremo Derecha', 'Extremo Izquierda', 'Delantera'].includes(pe)) {
+      const valid = ['Portera', 'Lateral Derecho', 'Central Derecho', 'Central Izquierdo', 'Carril Derecho', 'Carril Izquierdo', 'Lateral Izquierdo', 'Mediocentro', 'Mediapunta', 'Extremo Derecha', 'Extremo Izquierda', 'Delantera'];
+      if (valid.includes(pe)) {
+        if (pe === 'Carril Derecho') return 'Lateral Derecho';
+        if (pe === 'Carril Izquierdo') return 'Lateral Izquierdo';
         return pe;
       }
+      if (pe === 'Central') return 'Central Derecho';
+      if (pe === 'Carrilero Derecho') return 'Lateral Derecho';
+      if (pe === 'Carrilero Izquierdo') return 'Lateral Izquierdo';
     }
 
     const name = (p.name || p.nombre || '').toUpperCase().trim();
@@ -78,7 +84,8 @@ export default function TacticalField({
     if (name.includes('VÉLEZ') || name.includes('VELEZ') || id.includes('velez')) return 'Lateral Derecho';
     if (name.includes('MARTA') || name.includes('JULIETA') || name.includes('ANTONELLA') || name.includes('RUTH') || name.includes('AINA') || id === 'pa_3' || id === 'pb_14' || id === 'pc_10') return 'Mediocentro';
     if (name.includes('ANDREA') || name.includes('ANDRE') || id === 'pa_5') return 'Lateral Derecho';
-    if (name.includes('JOANA') || name.includes('ROXANNE') || name.includes('HELENA') || name.includes('ORFILA') || (name.includes('NEREA') && !name.includes('LÓPEZ') && !name.includes('LOPEZ') && id !== 'pb_13')) return 'Central';
+    if (name.includes('ORFILA') || (name.includes('NEREA') && !name.includes('LÓPEZ') && !name.includes('LOPEZ') && id !== 'pb_13')) return 'Central Izquierdo';
+    if (name.includes('JOANA') || name.includes('ROXANNE') || name.includes('HELENA')) return 'Central Derecho';
     if (name.includes('FATI') || name.includes('ADA') || name.includes('CORA')) return 'Lateral Izquierdo';
     if (name.includes('ABI') || name.includes('NADIA')) return 'Mediapunta';
     if (name.includes('GABI') || name.includes('NEUS') || name.includes('SOFÍA') || name.includes('SOFIA')) return 'Extremo Derecha';
@@ -86,7 +93,10 @@ export default function TacticalField({
 
     if (pos.includes('lat') && pos.includes('der')) return 'Lateral Derecho';
     if (pos.includes('lat') && pos.includes('izq')) return 'Lateral Izquierdo';
-    if (pos.includes('centr') || pos.includes('cb')) return 'Central';
+    if (pos.includes('carril') && pos.includes('der')) return 'Lateral Derecho';
+    if (pos.includes('carril') && pos.includes('izq')) return 'Lateral Izquierdo';
+    if (pos.includes('centr') && pos.includes('izq')) return 'Central Izquierdo';
+    if (pos.includes('centr') || pos.includes('cb')) return 'Central Derecho';
     if (pos.includes('med') || pos.includes('piv') || pos.includes('mc')) return 'Mediocentro';
     if (pos.includes('ext') && pos.includes('der')) return 'Extremo Derecha';
     if (pos.includes('ext') && pos.includes('izq')) return 'Extremo Izquierda';
@@ -150,29 +160,9 @@ export default function TacticalField({
           {tacticalSpots.map((spot) => {
             const spotPlayers = getPlayersByPos(spot.pos);
             
-            // For shared spots (Central, Mediocentro), we split the pool
+            // For shared spots (Mediocentro), we split the pool if needed
             let displayPlayers = spotPlayers;
-            if (spot.pos === 'Central') {
-              if (spot.id === 'lcb') {
-                // Central Izquierdo: JOANA, NEREA ORFILA
-                displayPlayers = spotPlayers.filter(p => {
-                  const n = (p.name || p.nombre || '').toUpperCase();
-                  return n.includes('JOANA') || n.includes('ORFILA') || n.includes('NEREA');
-                });
-                if (displayPlayers.length === 0 && spotPlayers.length > 0) {
-                  displayPlayers = spotPlayers.slice(Math.ceil(spotPlayers.length / 2));
-                }
-              } else {
-                // Central Derecho: HELENA, ROXANNE
-                displayPlayers = spotPlayers.filter(p => {
-                  const n = (p.name || p.nombre || '').toUpperCase();
-                  return n.includes('HELENA') || n.includes('ROXANNE');
-                });
-                if (displayPlayers.length === 0 && spotPlayers.length > 0) {
-                  displayPlayers = spotPlayers.slice(0, Math.ceil(spotPlayers.length / 2));
-                }
-              }
-            } else if (spot.pos === 'Mediocentro') {
+            if (spot.pos === 'Mediocentro') {
               if (spot.id === 'lcdm') {
                 // Mediocentro Izquierdo: MARTA, RUTH, AINA
                 displayPlayers = spotPlayers.filter(p => {

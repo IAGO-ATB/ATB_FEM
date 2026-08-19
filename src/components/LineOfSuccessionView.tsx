@@ -51,8 +51,8 @@ const TACTICAL_SPOTS: TacticalSpot[] = [
   { id: 'POR', code: 'POR', label: 'Portera', posKey: 'Portera', top: '88%', left: '50%', description: 'Guardameta principal y suplentes por jerarquía de equipo' },
   
   { id: 'LI', code: 'LI', label: 'Lateral Izquierdo', posKey: 'Lateral Izquierdo', top: '68%', left: '15%', description: 'Carrilera / Lateral Banda Izquierda' },
-  { id: 'DFC_IZQ', code: 'DFC-I', label: 'Central Izquierdo', posKey: 'Central', top: '74%', left: '38%', description: 'Defensa Central perfil Izquierdo' },
-  { id: 'DFC_DER', code: 'DFC-D', label: 'Central Derecho', posKey: 'Central', top: '74%', left: '62%', description: 'Defensa Central perfil Derecho' },
+  { id: 'DFC_IZQ', code: 'DFC-I', label: 'Central Izquierdo', posKey: 'Central Izquierdo', top: '74%', left: '38%', description: 'Defensa Central perfil Izquierdo' },
+  { id: 'DFC_DER', code: 'DFC-D', label: 'Central Derecho', posKey: 'Central Derecho', top: '74%', left: '62%', description: 'Defensa Central perfil Derecho' },
   { id: 'LD', code: 'LD', label: 'Lateral Derecho', posKey: 'Lateral Derecho', top: '68%', left: '85%', description: 'Carrilera / Lateral Banda Derecha' },
   
   { id: 'MC_IZQ', code: 'Pivote I', label: 'Pivote / MC Izq.', posKey: 'Mediocentro', top: '50%', left: '36%', description: 'Mediocentro de contención y distribución' },
@@ -247,7 +247,16 @@ export default function LineOfSuccessionView({ season, teams, selectedTeam, onSe
     }
 
     // Match on Central / Mediocentro variants
-    if (spot.posKey === 'Central' && posEsp.includes('Central')) {
+    if (spot.posKey === 'Central Derecho' && (posEsp === 'Central Derecho' || posEsp === 'Central')) {
+      return { isMatch: true, isSecondary: false };
+    }
+    if (spot.posKey === 'Central Izquierdo' && (posEsp === 'Central Izquierdo' || (posEsp === 'Central' && (player.name.toUpperCase().includes('NEREA') || player.name.toUpperCase().includes('ORFILA'))))) {
+      return { isMatch: true, isSecondary: false };
+    }
+    if (spot.posKey === 'Lateral Derecho' && (posEsp === 'Carril Derecho' || posEsp === 'Lateral Derecho')) {
+      return { isMatch: true, isSecondary: false };
+    }
+    if (spot.posKey === 'Lateral Izquierdo' && (posEsp === 'Carril Izquierdo' || posEsp === 'Lateral Izquierdo')) {
       return { isMatch: true, isSecondary: false };
     }
     if (spot.posKey === 'Mediocentro' && (posEsp.includes('Mediocentro') || posEsp.includes('Pivote'))) {
@@ -255,18 +264,20 @@ export default function LineOfSuccessionView({ season, teams, selectedTeam, onSe
     }
 
     // Secondary position match
-    if (includeSecondary && secPos && (
-      secPos.toLowerCase() === spot.posKey.toLowerCase() ||
-      (spot.posKey === 'Central' && secPos.includes('Central')) ||
-      (spot.posKey === 'Mediocentro' && (secPos.includes('Mediocentro') || secPos.includes('Pivote')))
-    )) {
-      return { isMatch: true, isSecondary: true };
+    if (includeSecondary && secPos) {
+      if (secPos.toLowerCase() === spot.posKey.toLowerCase()) return { isMatch: true, isSecondary: true };
+      if (spot.posKey === 'Central Derecho' && (secPos === 'Central Derecho' || secPos === 'Central')) return { isMatch: true, isSecondary: true };
+      if (spot.posKey === 'Central Izquierdo' && (secPos === 'Central Izquierdo' || secPos === 'Central')) return { isMatch: true, isSecondary: true };
+      if (spot.posKey === 'Lateral Derecho' && (secPos === 'Carril Derecho' || secPos === 'Lateral Derecho')) return { isMatch: true, isSecondary: true };
+      if (spot.posKey === 'Lateral Izquierdo' && (secPos === 'Carril Izquierdo' || secPos === 'Lateral Izquierdo')) return { isMatch: true, isSecondary: true };
+      if (spot.posKey === 'Mediocentro' && (secPos.includes('Mediocentro') || secPos.includes('Pivote'))) return { isMatch: true, isSecondary: true };
     }
 
     // Fallback general demarcation if no specific position set
     if (!posEsp) {
       if (spot.posKey === 'Portera' && genPos.includes('Portera')) return { isMatch: true, isSecondary: false };
-      if (spot.posKey === 'Central' && genPos.includes('Defensora')) return { isMatch: true, isSecondary: false };
+      if (spot.posKey.includes('Central') && genPos.includes('Defensora')) return { isMatch: true, isSecondary: false };
+      if (spot.posKey.includes('Lateral') && genPos.includes('Defensora')) return { isMatch: true, isSecondary: false };
       if (spot.posKey === 'Mediocentro' && genPos.includes('Mediocentro')) return { isMatch: true, isSecondary: false };
       if (spot.posKey === 'Delantera' && genPos.includes('Atacante')) return { isMatch: true, isSecondary: false };
     }
@@ -305,10 +316,6 @@ export default function LineOfSuccessionView({ season, teams, selectedTeam, onSe
     });
 
     // Split shared spots like DFC_IZQ vs DFC_DER or MC_IZQ vs MC_DER if needed
-    if (spot.id === 'DFC_IZQ' || spot.id === 'DFC_DER') {
-      const isEven = spot.id === 'DFC_IZQ';
-      return matchedList.filter((_, idx) => (isEven ? idx % 2 === 0 : idx % 2 === 1));
-    }
     if (spot.id === 'MC_IZQ' || spot.id === 'MC_DER') {
       const isEven = spot.id === 'MC_IZQ';
       return matchedList.filter((_, idx) => (isEven ? idx % 2 === 0 : idx % 2 === 1));

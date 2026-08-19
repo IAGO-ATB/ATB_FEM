@@ -124,7 +124,7 @@ export default function OfficialSessionSheetModal({ session, team, season, onClo
     if (p) {
       const pos = (p.positionCategory || p.position_category || p.position || p.demarcacion || '').toUpperCase();
       if (pos.includes('PORT') || pos.includes('GK') || pos.includes('ARQ')) return 1;
-      if (pos.includes('DEF') || pos.includes('LAT') || pos.includes('CB')) return 2;
+      if (pos.includes('DEF') || pos.includes('LAT') || pos.includes('CB') || pos.includes('CARRIL') || pos.includes('CENTR')) return 2;
       if (pos.includes('MED') || pos.includes('CENTRO') || pos.includes('MID') || pos.includes('MC')) return 3;
       if (pos.includes('DEL') || pos.includes('EXT') || pos.includes('ATT') || pos.includes('ATA')) return 4;
     }
@@ -315,9 +315,11 @@ export default function OfficialSessionSheetModal({ session, team, season, onClo
 
     if (rawPos) {
       const pe = rawPos.trim();
-      if (['Portera', 'Lateral Derecho', 'Central', 'Lateral Izquierdo', 'Mediocentro', 'Mediapunta', 'Extremo Derecha', 'Extremo Izquierda', 'Delantera'].includes(pe)) {
+      const valid = ['Portera', 'Lateral Derecho', 'Central Derecho', 'Central Izquierdo', 'Carril Derecho', 'Carril Izquierdo', 'Lateral Izquierdo', 'Mediocentro', 'Mediapunta', 'Extremo Derecha', 'Extremo Izquierda', 'Delantera'];
+      if (valid.includes(pe)) {
         return pe;
       }
+      if (pe === 'Central') return 'Central Derecho';
     }
 
     if (upper === 'LÓPEZ' || upper === 'LOPEZ' || pId === 'pb_13' || idUpper.includes('LÓPEZ') || idUpper.includes('LOPEZ')) {
@@ -330,7 +332,7 @@ export default function OfficialSessionSheetModal({ session, team, season, onClo
       return 'Mediocentro';
     }
     if (['NEREA', 'ORFILA'].includes(upper)) {
-      return 'Central';
+      return 'Central Izquierdo';
     }
     if (upper === 'ANDREA' || upper === 'ANDRE') {
       return 'Lateral Derecho';
@@ -339,11 +341,16 @@ export default function OfficialSessionSheetModal({ session, team, season, onClo
     if (upper.includes('SANDRA') || upper.includes('BLANCA') || upper.includes('MARTÍNEZ') || upper.includes('BENNASAR')) return 'Portera';
     if (upper.includes('IXI') || upper.includes('IXIAR') || upper.includes('HERAS') || upper.includes('RUIZ')) return 'Delantera';
     if (upper.includes('JULIETA') || upper.includes('ANTONELLA') || upper.includes('TORRES') || upper.includes('FONT')) return 'Mediocentro';
-    if (upper.includes('JOANA') || upper.includes('ROXANNE') || upper.includes('HELENA') || upper.includes('RODRÍGUEZ')) return 'Central';
+    if (upper.includes('JOANA') || upper.includes('ROXANNE') || upper.includes('HELENA') || upper.includes('RODRÍGUEZ')) return 'Central Derecho';
     if (upper.includes('FATI') || upper.includes('ADA') || upper.includes('CORA')) return 'Lateral Izquierdo';
     if (upper.includes('ABI') || upper.includes('NADIA')) return 'Mediapunta';
     if (upper.includes('GABI') || upper.includes('NEUS') || upper.includes('SERRA')) return 'Extremo Derecha';
     if (upper.includes('NURIA') || upper.includes('PAULA') || upper.includes('VITORIA') || upper.includes('CHLOE')) return 'Extremo Izquierda';
+
+    if (rawPos.toLowerCase().includes('centr') && rawPos.toLowerCase().includes('izq')) return 'Central Izquierdo';
+    if (rawPos.toLowerCase().includes('centr')) return 'Central Derecho';
+    if (rawPos.toLowerCase().includes('carril') && rawPos.toLowerCase().includes('der')) return 'Lateral Derecho';
+    if (rawPos.toLowerCase().includes('carril') && rawPos.toLowerCase().includes('izq')) return 'Lateral Izquierdo';
 
     return 'Mediocentro';
   };

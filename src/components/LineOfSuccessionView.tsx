@@ -126,11 +126,19 @@ export default function LineOfSuccessionView({ season, teams, selectedTeam, onSe
 
   // Helper function to calculate player age string
   const getPlayerAge = (p: Player): string => {
+    if ((p as any).edad !== undefined && (p as any).edad !== null && String((p as any).edad).trim() !== '') {
+      const e = String((p as any).edad).trim();
+      return e.toLowerCase().includes('año') ? e : `${e} años`;
+    }
+    if ((p as any).age !== undefined && (p as any).age !== null && String((p as any).age).trim() !== '') {
+      const e = String((p as any).age).trim();
+      return e.toLowerCase().includes('año') ? e : `${e} años`;
+    }
     if (!p.fecha_nacimiento) return '—';
     const fn = String(p.fecha_nacimiento).trim();
     if (!fn) return '—';
     
-    if (/^\d{2}$/.test(fn)) {
+    if (/^\d{1,2}$/.test(fn)) {
       return `${fn} años`;
     }
 
@@ -631,7 +639,7 @@ export default function LineOfSuccessionView({ season, teams, selectedTeam, onSe
                             </div>
 
                             <p className="text-[10px] text-slate-500 font-semibold truncate mt-0.5">
-                              Dorsal: <span className="text-slate-800 font-bold">{p.number || p.dorsal || 'Sin dorsal'}</span>
+                              Edad: <span className="text-slate-800 font-bold">{getPlayerAge(p)}</span>
                             </p>
 
                             {(p.height || p.lateralidad) && (
@@ -851,9 +859,9 @@ export default function LineOfSuccessionView({ season, teams, selectedTeam, onSe
                   </h4>
                   <div className="grid grid-cols-2 gap-2.5">
                     <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                      <p className="text-[10px] font-bold text-slate-400 uppercase">Fecha de Nacimiento</p>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase">Nacimiento / Edad</p>
                       <p className="text-xs font-black text-slate-800 mt-0.5">
-                        {selectedPlayerModal.fecha_nacimiento || 'No registrada'}
+                        {selectedPlayerModal.fecha_nacimiento ? `${selectedPlayerModal.fecha_nacimiento} (${getPlayerAge(selectedPlayerModal)})` : getPlayerAge(selectedPlayerModal) !== '—' ? getPlayerAge(selectedPlayerModal) : 'No registrada'}
                       </p>
                     </div>
 

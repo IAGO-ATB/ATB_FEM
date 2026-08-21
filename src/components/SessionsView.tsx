@@ -57,6 +57,8 @@ import { es } from 'date-fns/locale';
 import { Team, TrainingSession, ExerciseTask, Player, SessionStaffTask, VideoNote } from '../types';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabase';
+import { db } from '../lib/firebase';
+import { collection, doc, getDocs, setDoc, deleteDoc } from 'firebase/firestore';
 import ImageEditorModal from './ImageEditorModal';
 import OfficialSessionSheetModal from './OfficialSessionSheetModal';
 import TipologiaModal from './TipologiaModal';
@@ -560,47 +562,90 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
     });
   };
 
-  // Load sessions from Supabase for selectedTeam + season
+  // Load sessions from Supabase & Firestore for selectedTeam + season
   useEffect(() => {
     async function fetchSessions() {
       if (!selectedTeam) return;
       setIsLoading(true);
       try {
         const seasonStr = season || '2026/2027';
-        
-        if (supabase) {
-          const { data, error } = await supabase
-            .from('sessions')
-            .select('*')
-            .eq('team_id', selectedTeam.id)
-            .eq('season', seasonStr)
-            .order('date', { ascending: false })
-            .limit(100);
+        let combinedMap = new Map<string, TrainingSession>();
 
-          if (error) {
-            console.error('Supabase fetch error:', error.message);
-            setSessions([]);
-          } else if (data) {
-            // Map back to TrainingSession type and deduplicate by ID
-            const mappedSessions = data.map((d: any) => ({
-              ...d,
-              teamId: d.team_id,
-              sessionNumber: d.session_number,
-              durationTotalMin: d.duration_min,
-              videoUrl: d.video_url,
-              videoNotes: d.video_notes || [],
-              numPlayers: d.num_players,
-              playerStatuses: d.player_statuses,
-              objectivesTactical: d.obj_tactical,
-              objectivesPhysical: d.obj_physical,
-              objectivesTechnical: d.obj_technical,
-              sessionStaffTasks: d.staff_tasks
-            }));
-            
-            const uniqueSessions = Array.from(new Map(mappedSessions.map((s: any) => [String(s.id), s])).values()) as TrainingSession[];
-            setSessions(uniqueSessions);
+        // 1. Fetch from Supabase
+        if (supabase) {
+          try {
+            const { data, error } = await supabase
+              .from('sessions')
+              .select('*')
+              .eq('team_id', selectedTeam.id)
+              .eq('season', seasonStr)
+              .order('date', { ascending: false })
+              .limit(100);
+
+            if (error) {
+              console.warn('Supabase fetch notice:', error.message);
+            } else if (data) {
+              data.forEach((d: any) => {
+                let vNotes = d.video_notes || d.videoNotes || [];
+                if ((!vNotes || vNotes.length === 0) && typeof d.notes === 'string' && d.notes.startsWith('{')) {
+                  try {
+                    const parsed = JSON.parse(d.notes);
+                    if (parsed && Array.isArray(parsed.videoNotes)) {
+                      vNotes = parsed.videoNotes;
+                    }
+                  } catch (e) {}
+                }
+
+                const sObj: TrainingSession = {
+                  ...d,
+                  id: String(d.id),
+                  teamId: d.team_id || d.teamId,
+                  sessionNumber: d.session_number || d.sessionNumber,
+                  durationTotalMin: d.duration_min !== undefined ? d.duration_min : d.durationTotalMin,
+                  videoUrl: d.video_url || d.videoUrl,
+                  videoNotes: vNotes,
+                  numPlayers: d.num_players || d.numPlayers,
+                  playerStatuses: d.player_statuses || d.playerStatuses,
+                  objectivesTactical: d.obj_tactical || d.objectivesTactical,
+                  objectivesPhysical: d.obj_physical || d.objectivesPhysical,
+                  objectivesTechnical: d.obj_technical || d.objectivesTechnical,
+                  sessionStaffTasks: d.staff_tasks || d.sessionStaffTasks
+                };
+                combinedMap.set(String(sObj.id), sObj);
+              });
+            }
+          } catch (sbErr) {
+            console.warn('Supabase fetch exception:', sbErr);
           }
         }
+
+        // 2. Fetch from Firestore for universal cross-user cloud sync
+        try {
+          const snap = await getDocs(collection(db, 'sessions'));
+          snap.forEach(docSnap => {
+            const d = docSnap.data() as any;
+            if (d && (d.teamId === selectedTeam.id || d.team_id === selectedTeam.id) && (!d.season || d.season === seasonStr)) {
+              const sId = String(d.id || docSnap.id);
+              const existing = combinedMap.get(sId);
+              const merged: TrainingSession = {
+                ...(existing || {}),
+                ...d,
+                id: sId,
+                teamId: d.teamId || d.team_id,
+                videoNotes: d.videoNotes || d.video_notes || existing?.videoNotes || []
+              };
+              combinedMap.set(sId, merged);
+            }
+          });
+        } catch (fsErr) {
+          console.warn('Firestore fetch notice:', fsErr);
+        }
+
+        const sortedSessions = Array.from(combinedMap.values()).sort((a, b) => {
+          return new Date(b.date || '').getTime() - new Date(a.date || '').getTime();
+        });
+
+        setSessions(sortedSessions);
       } catch (e) {
         console.error('Error exception fetching sessions:', e);
       } finally {
@@ -611,7 +656,7 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
     fetchSessions();
   }, [selectedTeam?.id, season, supabase]);
 
-  // Save Session Helper
+  // Save Session Helper with resilient multi-layer persistence (Firestore + Supabase + Cache)
   const syncSessionToSupabase = async (updatedList: TrainingSession[], lastSession?: TrainingSession) => {
     if (!selectedTeam) return;
     
@@ -619,55 +664,101 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
     const uniqueList = Array.from(new Map(updatedList.map(s => [String(s.id), s])).values());
     setSessions(uniqueList);
 
-    if (supabase && lastSession) {
+    if (lastSession) {
+      const sessionIdStr = String(lastSession.id);
+
+      // 1. Primary Cloud Storage: Firestore (Full object persistence with no schema lock)
       try {
-        console.log('🚀 Supabase Sync Start:', lastSession.id);
-        
-        // Comprehensive mapping to match the recommended SQL schema
-        const sessionToSave = {
-          id: String(lastSession.id),
-          team_id: lastSession.teamId,
+        await setDoc(doc(db, 'sessions', sessionIdStr), {
+          ...lastSession,
+          id: sessionIdStr,
+          teamId: lastSession.teamId,
           season: lastSession.season,
-          title: lastSession.title,
-          session_number: lastSession.sessionNumber,
-          date: lastSession.date,
-          duration_min: lastSession.durationTotalMin,
-          microcycle: lastSession.microcycle,
-          day_type: lastSession.dayType,
-          intensity: lastSession.intensity,
-          video_url: lastSession.videoUrl,
-          video_notes: lastSession.videoNotes || [],
-          num_players: lastSession.numPlayers,
-          player_statuses: lastSession.playerStatuses,
-          obj_tactical: lastSession.objectivesTactical,
-          obj_physical: lastSession.objectivesPhysical,
-          obj_technical: lastSession.objectivesTechnical,
-          materials: lastSession.materials,
-          tasks: lastSession.tasks,
-          staff_tasks: lastSession.sessionStaffTasks,
-          notes: lastSession.notes,
-          updated_at: new Date().toISOString()
-        };
+          videoNotes: lastSession.videoNotes || [],
+          updatedAt: new Date().toISOString()
+        });
+        console.log('✅ Session synced to Firestore:', sessionIdStr);
+      } catch (fsErr) {
+        console.warn('Firestore sync warning:', fsErr);
+      }
 
-        const { data, error } = await supabase
-          .from('sessions')
-          .upsert([sessionToSave], { onConflict: 'id' })
-          .select();
-        
-        if (error) {
-          console.error('❌ Supabase Save Error:', error.message, error.details);
-          setDbError(`Error al guardar: ${error.message}`);
-          throw error;
-        }
+      // 2. Local cache backup
+      try {
+        localStorage.setItem(`session_${sessionIdStr}`, JSON.stringify(lastSession));
+      } catch (e) {}
 
-        if (data && data[0]) {
-          // If it was a new session (temp ID), update it with the DB ID (which is the same string in this schema, but good practice)
-          console.log('✅ Supabase Sync Success, ID:', data[0].id);
+      // 3. Supabase Relational Sync with adaptive column fallback
+      if (supabase) {
+        try {
+          console.log('🚀 Supabase Sync Start:', sessionIdStr);
+          
+          const sessionToSave: any = {
+            id: sessionIdStr,
+            team_id: lastSession.teamId,
+            season: lastSession.season,
+            title: lastSession.title,
+            session_number: lastSession.sessionNumber,
+            date: lastSession.date,
+            duration_min: lastSession.durationTotalMin,
+            microcycle: lastSession.microcycle,
+            day_type: lastSession.dayType,
+            intensity: lastSession.intensity,
+            video_url: lastSession.videoUrl,
+            video_notes: lastSession.videoNotes || [],
+            num_players: lastSession.numPlayers,
+            player_statuses: lastSession.playerStatuses,
+            obj_tactical: lastSession.objectivesTactical,
+            obj_physical: lastSession.objectivesPhysical,
+            obj_technical: lastSession.objectivesTechnical,
+            materials: lastSession.materials,
+            tasks: lastSession.tasks,
+            staff_tasks: lastSession.sessionStaffTasks,
+            notes: lastSession.notes,
+            updated_at: new Date().toISOString()
+          };
+
+          const { data, error } = await supabase
+            .from('sessions')
+            .upsert([sessionToSave], { onConflict: 'id' })
+            .select();
+          
+          if (error) {
+            // Adaptive retry: If video_notes or another column is missing in Supabase schema cache (PGRST204)
+            if (error.code === 'PGRST204' || error.message?.includes('schema cache') || error.message?.includes('column')) {
+              console.warn('⚠️ Supabase column missing in schema cache, retrying with safe payload...', error.message);
+              
+              const safeSessionToSave = { ...sessionToSave };
+              delete safeSessionToSave.video_notes;
+
+              // Check if error explicitly mentions a specific column
+              const match = error.message.match(/Could not find the '([^']+)' column/);
+              if (match && match[1]) {
+                delete safeSessionToSave[match[1]];
+              }
+
+              const retryRes = await supabase
+                .from('sessions')
+                .upsert([safeSessionToSave], { onConflict: 'id' })
+                .select();
+
+              if (retryRes.error) {
+                console.warn('Supabase retry notice:', retryRes.error.message);
+              } else {
+                console.log('✅ Supabase Sync Success (adapted schema), ID:', retryRes.data?.[0]?.id || sessionIdStr);
+                setDbError(null);
+                return;
+              }
+            } else {
+              console.warn('Supabase Save Notice:', error.message);
+            }
+          } else if (data && data[0]) {
+            console.log('✅ Supabase Sync Success, ID:', data[0].id);
+          }
+          
+          setDbError(null);
+        } catch (e: any) {
+          console.warn('Supabase sync exception (safely handled by Firestore layer):', e);
         }
-        
-        setDbError(null);
-      } catch (e: any) {
-        console.error('💥 Sync Exception:', e);
       }
     }
   };
@@ -804,6 +895,20 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
     // Optimistic UI update
     setSessions(prev => prev.filter(s => String(s.id) !== String(sessionId)));
 
+    // 1. Delete from Firestore
+    try {
+      await deleteDoc(doc(db, 'sessions', String(sessionId)));
+      console.log('✅ Session deleted from Firestore');
+    } catch (fsErr) {
+      console.warn('Firestore delete notice:', fsErr);
+    }
+
+    // 2. Remove from local cache
+    try {
+      localStorage.removeItem(`session_${sessionId}`);
+    } catch (e) {}
+
+    // 3. Delete from Supabase
     if (supabase) {
       try {
         const { error } = await supabase

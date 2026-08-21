@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft, UserPlus, Search, Filter, Mail, Phone, MoreHorizontal, X, Trash2, Upload, Users, User, Plus, BarChart2, Dumbbell, ClipboardList, FileText, Clock, ClipboardCheck, Sparkles, Activity, Layers, Target, TrendingUp, Zap, Trophy } from 'lucide-react';
+import { ArrowLeft, UserPlus, Search, Filter, Mail, Phone, MoreHorizontal, X, Trash2, Upload, Users, User, Plus, BarChart2, Dumbbell, ClipboardList, FileText, Clock, ClipboardCheck, Sparkles, Activity, Layers, Target, TrendingUp, Zap, Trophy, Shield } from 'lucide-react';
 import { Team, Player } from '../types';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabase';
@@ -33,6 +33,35 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
   const [cropperData, setCropperData] = useState<{ image: string } | null>(null);
   const [selectedPlayerDetail, setSelectedPlayerDetail] = useState<Player | null>(null);
   const [activeProfileView, setActiveProfileView] = useState<'info' | 'training' | 'stats' | 'gym' | 'reports'>('info');
+
+  // Multi-Team Selection State for Player Stats
+  const [availableTeams, setAvailableTeams] = useState<Team[]>([]);
+  const [trainingTeamFilter, setTrainingTeamFilter] = useState<string>('base');
+  const [matchTeamFilter, setMatchTeamFilter] = useState<string>('all');
+  const [gymTeamFilter, setGymTeamFilter] = useState<string>('all');
+
+  useEffect(() => {
+    async function fetchTeams() {
+      let teamsList: Team[] = [team];
+      if (supabase) {
+        try {
+          const { data } = await supabase.from('teams').select('*').order('name', { ascending: true });
+          if (data && data.length > 0) {
+            teamsList = data.map((t: any) => ({
+              ...t,
+              technicalStaff: t.technical_staff || t.technicalstaff || t.technicalStaff
+            }));
+          }
+        } catch (e) {}
+      }
+      if (!teamsList.some(t => t.id === team.id)) {
+        teamsList.push(team);
+      }
+      setAvailableTeams(teamsList);
+    }
+    fetchTeams();
+  }, [team.id]);
+
   const [trainingStats, setTrainingStats] = useState<{
     disponible: number;
     comodin: number;
@@ -41,25 +70,63 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
     loading: boolean;
   }>({ disponible: 0, comodin: 0, noDisponible: 0, totalMinutes: 0, loading: false });
 
-  const fetchPlayerTrainingStats = async (playerId: string, teamId: string) => {
+  const fetchPlayerTrainingStats = async (playerId: string, teamFilterId: string = 'base') => {
     setTrainingStats(prev => ({ ...prev, loading: true }));
     try {
-      if (!supabase) return;
-      const { data, error } = await supabase
-        .from('sessions')
-        .select('player_statuses, duration_min')
-        .eq('team_id', teamId);
+      const targetTeamId = teamFilterId === 'base' ? (selectedPlayerDetail?.teamId || team.id) : teamFilterId;
+      let allSessions: any[] = [];
 
-      if (error) throw error;
+      // 1. Fetch from Supabase
+      if (supabase) {
+        try {
+          let query = supabase.from('sessions').select('player_statuses, duration_min, team_id');
+          if (targetTeamId !== 'all') {
+            query = query.eq('team_id', targetTeamId);
+          }
+          const { data, error } = await query;
+          if (!error && data) {
+            allSessions = [...data];
+          }
+        } catch (e) {}
+      }
+
+      // 2. Also fetch from Firestore for real-time consistency
+      try {
+        const snap = await getDocs(collection(db, 'sessions'));
+        snap.forEach(docSnap => {
+          const d = docSnap.data() as any;
+          if (d) {
+            const sTeamId = d.teamId || d.team_id;
+            if (targetTeamId === 'all' || sTeamId === targetTeamId) {
+              allSessions.push({
+                player_statuses: d.playerStatuses || d.player_statuses || {},
+                duration_min: d.durationTotalMin !== undefined ? d.durationTotalMin : d.duration_min,
+                team_id: sTeamId
+              });
+            }
+          }
+        });
+      } catch (e) {}
 
       let disponible = 0;
       let comodin = 0;
       let noDisponible = 0;
       let totalMinutes = 0;
 
-      data?.forEach(session => {
+      allSessions.forEach(session => {
         const statuses = session.player_statuses || {};
-        const status = statuses[playerId];
+        let status = statuses[playerId] || statuses[String(playerId)];
+
+        // Fallback matching if stored with different key format
+        if (!status && typeof statuses === 'object') {
+          for (const [key, val] of Object.entries(statuses)) {
+            if (String(key).trim() === String(playerId).trim()) {
+              status = val as string;
+              break;
+            }
+          }
+        }
+
         const minutes = Number(session.duration_min) || 0;
 
         if (status === 'disponible') {
@@ -124,16 +191,19 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
   const [matchCompetitionFilter, setMatchCompetitionFilter] = useState<string>('all');
   const [rawMatchesData, setRawMatchesData] = useState<any[]>([]);
 
-  // Effect to re-process stats when filter changes or data is loaded
+  // Effect to re-process stats when filters change or data is loaded
   useEffect(() => {
     if (selectedPlayerDetail && rawMatchesData.length > 0) {
-      processMatchData(rawMatchesData, selectedPlayerDetail.id, matchCompetitionFilter);
+      processMatchData(rawMatchesData, selectedPlayerDetail.id, matchCompetitionFilter, matchTeamFilter);
     }
-  }, [matchCompetitionFilter, selectedPlayerDetail?.id, rawMatchesData]);
+  }, [matchCompetitionFilter, matchTeamFilter, selectedPlayerDetail?.id, rawMatchesData]);
 
-  // Reset filter when changing player
+  // Reset filters when changing player
   useEffect(() => {
     setMatchCompetitionFilter('all');
+    setMatchTeamFilter('all');
+    setTrainingTeamFilter('base');
+    setGymTeamFilter('all');
   }, [selectedPlayerDetail?.id]);
 
   const fetchPlayerMatchStats = async (playerId: string) => {
@@ -183,14 +253,14 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
       });
 
       setRawMatchesData(finalData);
-      processMatchData(finalData, playerId, matchCompetitionFilter);
+      processMatchData(finalData, playerId, matchCompetitionFilter, matchTeamFilter);
     } catch (err) {
       console.error('Error fetching match stats:', err);
       setMatchStats(prev => ({ ...prev, loading: false }));
     }
   };
 
-  const processMatchData = (matchesData: any[], playerId: string, compFilter: string) => {
+  const processMatchData = (matchesData: any[], playerId: string, compFilter: string, teamFilter: string = 'all') => {
     let matchesPlayed = 0;
     let starts = 0;
     let subEntries = 0;
@@ -206,7 +276,19 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
     const minutesByPosition: Record<string, number> = {};
     const compsSet = new Set<string>();
 
+    const targetTeamObj = availableTeams.find(t => t.id === teamFilter);
+
     matchesData.forEach(m => {
+      // Filter by team if not 'all'
+      if (teamFilter !== 'all') {
+        const mTeamId = m.team_id || m.teamId;
+        const mTeamName = (m.team || m.team_name || m.home_team || m.away_team || '').toLowerCase();
+        const matchesTeamId = mTeamId && String(mTeamId) === String(teamFilter);
+        const matchesTeamName = targetTeamObj && mTeamName.includes(targetTeamObj.name.toLowerCase());
+        const isBaseTeam = teamFilter === team.id;
+        if (!matchesTeamId && !matchesTeamName && !(isBaseTeam && !mTeamId && !mTeamName)) return;
+      }
+
       let pStats: any[] = [];
       
       // Collect available competitions (case-sensitive as saved, but trimmed)
@@ -343,7 +425,7 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
     total: { totalSessions: 0, sessionsByType: {}, exercisesByMuscleGroup: {}, totalExercises: 0 }
   });
 
-  const fetchPlayerGymStats = async (player: Player) => {
+  const fetchPlayerGymStats = async (player: Player, teamFilter: string = 'all') => {
     setGymStats(prev => ({ ...prev, loading: true }));
     try {
       if (!supabase) {
@@ -354,6 +436,7 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
       const pFullName = (player.nombre ? `${player.nombre} ${player.apellidos || ''}` : player.name).trim().toLowerCase();
       const pFirstName = (player.nombre || player.name.split(' ')[0] || '').trim().toLowerCase();
       const playerId = String(player.id);
+      const targetTeamObj = availableTeams.find(t => t.id === teamFilter);
 
       // 1. Fetch gym exercise library for muscle group mapping lookup
       const exerciseLibMap: Record<string, string> = {};
@@ -401,6 +484,26 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
       const totalAcc: GymCategoryStats = { totalSessions: 0, sessionsByType: {}, exercisesByMuscleGroup: {}, totalExercises: 0 };
 
       allLogs.forEach(row => {
+        // Team filter check if not 'all'
+        if (teamFilter !== 'all') {
+          const rowTeamId = row.team_id || row.teamId;
+          const rowTeamName = (row.team || row.team_name || '').toLowerCase();
+          const isTargetA = targetTeamObj?.name?.toLowerCase().includes('femenino a') || targetTeamObj?.id === 'femenino-a';
+
+          let matchesTeam = false;
+          if (row._sourceTable === 'gym_group_sessions_femenino_a') {
+            matchesTeam = isTargetA;
+          } else if (rowTeamId && String(rowTeamId) === String(teamFilter)) {
+            matchesTeam = true;
+          } else if (targetTeamObj && rowTeamName && rowTeamName.includes(targetTeamObj.name.toLowerCase())) {
+            matchesTeam = true;
+          } else if (!rowTeamId && !rowTeamName && targetTeamObj?.id === team.id) {
+            matchesTeam = true;
+          }
+
+          if (!matchesTeam) return;
+        }
+
         let parsed: any = null;
         const rawData = row.notes || row.details;
         if (rawData) {
@@ -575,9 +678,15 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
 
   useEffect(() => {
     if (selectedPlayerDetail && activeProfileView === 'gym') {
-      fetchPlayerGymStats(selectedPlayerDetail);
+      fetchPlayerGymStats(selectedPlayerDetail, gymTeamFilter);
     }
-  }, [selectedPlayerDetail?.id, activeProfileView]);
+  }, [selectedPlayerDetail?.id, activeProfileView, gymTeamFilter]);
+
+  useEffect(() => {
+    if (selectedPlayerDetail && activeProfileView === 'training') {
+      fetchPlayerTrainingStats(selectedPlayerDetail.id, trainingTeamFilter);
+    }
+  }, [selectedPlayerDetail?.id, activeProfileView, trainingTeamFilter]);
   const [isEditingPlayer, setIsEditingPlayer] = useState(false);
   const [editingPlayerData, setEditingPlayerData] = useState<any>(null);
   const [editCropperData, setEditCropperData] = useState<{ image: string } | null>(null);
@@ -1388,7 +1497,7 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
                       </div>
                     </div>
                   ) : activeProfileView === 'training' ? (
-                    <div className="space-y-8">
+                    <div className="space-y-6">
                       <div className="flex items-center justify-between">
                         <button 
                           onClick={() => setActiveProfileView('info')}
@@ -1398,6 +1507,29 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
                           <span className="text-[10px] font-bold uppercase tracking-widest">Volver al Perfil</span>
                         </button>
                         <h4 className="text-lg font-black text-slate-900 uppercase tracking-tight">Entrenamientos</h4>
+                      </div>
+
+                      {/* Plantilla Selector */}
+                      <div className="flex items-center justify-between gap-3 p-1.5 bg-slate-100/90 rounded-2xl border border-slate-200/80 shadow-2xs">
+                        <div className="flex items-center gap-2 px-3 py-1">
+                          <Shield className="w-3.5 h-3.5 text-sky-600" />
+                          <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest whitespace-nowrap">Plantilla:</span>
+                        </div>
+                        <select 
+                          value={trainingTeamFilter}
+                          onChange={(e) => {
+                            const newTeamId = e.target.value;
+                            setTrainingTeamFilter(newTeamId);
+                            if (selectedPlayerDetail) fetchPlayerTrainingStats(selectedPlayerDetail.id, newTeamId);
+                          }}
+                          className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-black text-slate-800 outline-none focus:ring-2 focus:ring-sky-500/20 transition-all appearance-none cursor-pointer text-center uppercase tracking-tight shadow-2xs"
+                        >
+                          <option value="base">Plantilla Actual ({team.name})</option>
+                          <option value="all">Todas las Plantillas (Global)</option>
+                          {availableTeams.filter(t => t.id !== team.id).map(t => (
+                            <option key={t.id} value={t.id}>{t.name}</option>
+                          ))}
+                        </select>
                       </div>
 
                       {trainingStats.loading ? (
@@ -1467,6 +1599,29 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
                           <Dumbbell className="w-5 h-5 text-sky-500" />
                           <h4 className="text-base font-black text-slate-900 uppercase tracking-tight">Análisis de Gimnasio</h4>
                         </div>
+                      </div>
+
+                      {/* Plantilla Selector */}
+                      <div className="flex items-center justify-between gap-3 p-1.5 bg-slate-100/90 rounded-2xl border border-slate-200/80 shadow-2xs">
+                        <div className="flex items-center gap-2 px-3 py-1">
+                          <Shield className="w-3.5 h-3.5 text-sky-600" />
+                          <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest whitespace-nowrap">Plantilla:</span>
+                        </div>
+                        <select 
+                          value={gymTeamFilter}
+                          onChange={(e) => {
+                            const newTeamId = e.target.value;
+                            setGymTeamFilter(newTeamId);
+                            if (selectedPlayerDetail) fetchPlayerGymStats(selectedPlayerDetail, newTeamId);
+                          }}
+                          className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-black text-slate-800 outline-none focus:ring-2 focus:ring-sky-500/20 transition-all appearance-none cursor-pointer text-center uppercase tracking-tight shadow-2xs"
+                        >
+                          <option value="all">Todas las Plantillas (Global)</option>
+                          <option value={team.id}>Plantilla Actual ({team.name})</option>
+                          {availableTeams.filter(t => t.id !== team.id).map(t => (
+                            <option key={t.id} value={t.id}>{t.name}</option>
+                          ))}
+                        </select>
                       </div>
 
                       {/* 3 Botones Pequeños Superiores: GRUPAL / INDIVIDUAL / TOTAL */}
@@ -1676,25 +1831,47 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
                         </div>
                       </div>
 
-                      {/* Competition Filter */}
-                      {matchStats.availableCompetitions.length > 0 && (
-                        <div className="flex items-center justify-between gap-4 p-1 bg-slate-100 rounded-xl border border-slate-200/60">
-                          <div className="flex items-center gap-2 px-3 py-1.5">
-                            <Filter className="w-3.5 h-3.5 text-slate-400" />
-                            <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Filtrar por:</span>
+                      {/* Filter Bar (Plantilla & Competición) */}
+                      <div className="space-y-2">
+                        {/* Plantilla Filter */}
+                        <div className="flex items-center justify-between gap-3 p-1.5 bg-slate-100/90 rounded-2xl border border-slate-200/80 shadow-2xs">
+                          <div className="flex items-center gap-2 px-3 py-1">
+                            <Shield className="w-3.5 h-3.5 text-sky-600" />
+                            <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest whitespace-nowrap">Plantilla:</span>
                           </div>
                           <select 
-                            value={matchCompetitionFilter}
-                            onChange={(e) => setMatchCompetitionFilter(e.target.value)}
-                            className="flex-1 bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-sky-500/20 transition-all appearance-none cursor-pointer text-center uppercase tracking-tight"
+                            value={matchTeamFilter}
+                            onChange={(e) => setMatchTeamFilter(e.target.value)}
+                            className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-black text-slate-800 outline-none focus:ring-2 focus:ring-sky-500/20 transition-all appearance-none cursor-pointer text-center uppercase tracking-tight shadow-2xs"
                           >
-                            <option value="all">Todas las Competiciones</option>
-                            {matchStats.availableCompetitions.map(comp => (
-                              <option key={comp} value={comp}>{comp}</option>
+                            <option value="all">Todas las Plantillas (Global)</option>
+                            <option value={team.id}>Plantilla Actual ({team.name})</option>
+                            {availableTeams.filter(t => t.id !== team.id).map(t => (
+                              <option key={t.id} value={t.id}>{t.name}</option>
                             ))}
                           </select>
                         </div>
-                      )}
+
+                        {/* Competition Filter */}
+                        {matchStats.availableCompetitions.length > 0 && (
+                          <div className="flex items-center justify-between gap-3 p-1.5 bg-slate-100/90 rounded-xl border border-slate-200/60 shadow-2xs">
+                            <div className="flex items-center gap-2 px-3 py-1">
+                              <Filter className="w-3.5 h-3.5 text-slate-400" />
+                              <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest whitespace-nowrap">Competición:</span>
+                            </div>
+                            <select 
+                              value={matchCompetitionFilter}
+                              onChange={(e) => setMatchCompetitionFilter(e.target.value)}
+                              className="flex-1 bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-sky-500/20 transition-all appearance-none cursor-pointer text-center uppercase tracking-tight shadow-2xs"
+                            >
+                              <option value="all">Todas las Competiciones</option>
+                              {matchStats.availableCompetitions.map(comp => (
+                                <option key={comp} value={comp}>{comp}</option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                      </div>
 
                       {matchStats.loading ? (
                         <div className="flex flex-col items-center justify-center py-20 gap-4">

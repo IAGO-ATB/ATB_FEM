@@ -24,6 +24,7 @@ const STANDARD_TIPOLOGIAS = [
   'REDUCIDOS',
   'DIRIGIDO',
   'TRANSICIONES',
+  'ABP',
 ];
 
 const FOCO_COLORS: Record<string, { bg: string; border: string; text: string; fill: string }> = {
@@ -46,6 +47,7 @@ const TIPOLOGIA_COLORS: Record<string, { bg: string; text: string; border: strin
   REDUCIDOS: { bg: 'bg-cyan-500', text: 'text-cyan-700', border: 'border-cyan-300' },
   DIRIGIDO: { bg: 'bg-teal-500', text: 'text-teal-700', border: 'border-teal-300' },
   TRANSICIONES: { bg: 'bg-pink-500', text: 'text-pink-700', border: 'border-pink-300' },
+  ABP: { bg: 'bg-amber-600', text: 'text-amber-800', border: 'border-amber-400' },
 };
 
 export default function TipologiaModal({ isOpen, onClose, sessions, teamName }: TipologiaModalProps) {

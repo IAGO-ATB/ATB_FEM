@@ -80,7 +80,7 @@ export interface ExerciseTask {
   coach?: string; // e.g. MIKY, JUANMI, NICA, IAGO
   codeName?: string; // e.g. SRJ EG 3x3+2, SMJ JUEGO PROGRESION 5X5+6, SGJ EM ATAQUE-DEFENSA
   foco?: '-' | 'MCB' | 'MSB' | 'MIXTO' | string;
-  tipologia?: 'LÚDICO' | 'CONDICIONAL' | 'RONDOS' | 'EVOLUCIONES' | 'RUEDAS DE PASE' | 'MANTENIMIENTO' | 'JUEGO DE POSICIÓN' | 'JUEGO DE PROGRESIÓN' | 'PARTIDO CONDICIONADO' | 'REDUCIDOS' | 'DIRIGIDO' | 'TRANSICIONES' | string;
+  tipologia?: 'LÚDICO' | 'CONDICIONAL' | 'RONDOS' | 'EVOLUCIONES' | 'RUEDAS DE PASE' | 'MANTENIMIENTO' | 'JUEGO DE POSICIÓN' | 'JUEGO DE PROGRESIÓN' | 'PARTIDO CONDICIONADO' | 'REDUCIDOS' | 'DIRIGIDO' | 'TRANSICIONES' | 'ABP' | string;
   comoParaQue?: string;
   fases?: string[];
   contextos?: string[];

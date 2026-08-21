@@ -22,6 +22,8 @@ const STANDARD_TIPOLOGIAS = [
   'JUEGO DE PROGRESIÓN',
   'PARTIDO CONDICIONADO',
   'REDUCIDOS',
+  'DIRIGIDO',
+  'TRANSICIONES',
 ];
 
 const FOCO_COLORS: Record<string, { bg: string; border: string; text: string; fill: string }> = {
@@ -42,6 +44,8 @@ const TIPOLOGIA_COLORS: Record<string, { bg: string; text: string; border: strin
   'JUEGO DE PROGRESIÓN': { bg: 'bg-fuchsia-500', text: 'text-fuchsia-700', border: 'border-fuchsia-300' },
   'PARTIDO CONDICIONADO': { bg: 'bg-rose-500', text: 'text-rose-700', border: 'border-rose-300' },
   REDUCIDOS: { bg: 'bg-cyan-500', text: 'text-cyan-700', border: 'border-cyan-300' },
+  DIRIGIDO: { bg: 'bg-teal-500', text: 'text-teal-700', border: 'border-teal-300' },
+  TRANSICIONES: { bg: 'bg-pink-500', text: 'text-pink-700', border: 'border-pink-300' },
 };
 
 export default function TipologiaModal({ isOpen, onClose, sessions, teamName }: TipologiaModalProps) {

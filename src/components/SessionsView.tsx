@@ -276,6 +276,7 @@ const COMMON_MATERIALS = [
 
 const FASE_OPTIONS = ['ATACAR', 'DEFENDER', 'TRANSICIÓN DEFENSA-ATAQUE', 'TRANSICIÓN ATAQUE-DEFENSA', '-'];
 const CONTEXTO_OPTIONS = [
+  '-',
   'INICIO-REINICIO', 
   'GESTIÓN DE BALÓN + PROGRESIÓN', 
   'GESTIÓN DE LA RECUPERCIÓN', 
@@ -284,6 +285,21 @@ const CONTEXTO_OPTIONS = [
   'DEFENSA DE LA PROGRESIÓN (BLOQUE)', 
   'GESTIÓN DE LA PERDIDA', 
   'DEFENSA DE ÁREA (CORRIENDO/ESTÁTICA)'
+];
+
+const TIPOLOGIA_OPTIONS = [
+  'LÚDICO',
+  'CONDICIONAL',
+  'RONDOS',
+  'EVOLUCIONES',
+  'RUEDAS DE PASE',
+  'MANTENIMIENTO',
+  'JUEGO DE POSICIÓN',
+  'JUEGO DE PROGRESIÓN',
+  'PARTIDO CONDICIONADO',
+  'REDUCIDOS',
+  'DIRIGIDO',
+  'TRANSICIONES'
 ];
 
 const PHASE_OPTIONS: ExerciseTask['phase'][] = [
@@ -2098,16 +2114,9 @@ export default function SessionsView({ season, selectedTeam, teams, onSelectTeam
                           }}
                           className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:ring-2 focus:ring-sky-500 outline-none"
                         >
-                          <option value="LÚDICO">LÚDICO</option>
-                          <option value="CONDICIONAL">CONDICIONAL</option>
-                          <option value="RONDOS">RONDOS</option>
-                          <option value="EVOLUCIONES">EVOLUCIONES</option>
-                          <option value="RUEDAS DE PASE">RUEDAS DE PASE</option>
-                          <option value="MANTENIMIENTO">MANTENIMIENTO</option>
-                          <option value="JUEGO DE POSICIÓN">JUEGO DE POSICIÓN</option>
-                          <option value="JUEGO DE PROGRESIÓN">JUEGO DE PROGRESIÓN</option>
-                          <option value="PARTIDO CONDICIONADO">PARTIDO CONDICIONADO</option>
-                          <option value="REDUCIDOS">REDUCIDOS</option>
+                          {TIPOLOGIA_OPTIONS.map(tipo => (
+                            <option key={tipo} value={tipo}>{tipo}</option>
+                          ))}
                         </select>
                       </div>
                     </div>

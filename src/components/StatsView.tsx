@@ -1000,6 +1000,10 @@ export default function StatsView({ season, selectedTeam, teams = [] }: StatsVie
           valA = a.goals || 0;
           valB = b.goals || 0;
           break;
+        case 'assists':
+          valA = a.assists || 0;
+          valB = b.assists || 0;
+          break;
         case 'shots':
           valA = a.shots || 0;
           valB = b.shots || 0;

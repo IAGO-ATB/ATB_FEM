@@ -19,6 +19,7 @@ interface TeamRosterProps {
 const MOCK_PLAYERS: Player[] = [];
 
 import TacticalField from './TacticalField';
+import { isPlayerNameMatching } from './GymView';
 
 export default function TeamRoster({ team, season = '2026/2027', onBack, onSelectPlayer }: TeamRosterProps) {
   const [players, setPlayers] = useState<Player[]>([]);
@@ -543,12 +544,14 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
             isParticipant = true;
           } else if (participatingPlayers.length > 0) {
             isParticipant = participatingPlayers.some(pName => {
-              const cleanPName = String(pName).trim().toLowerCase();
-              return cleanPName === pFullName || cleanPName === pFirstName || cleanPName.includes(pFirstName) || pFullName.includes(cleanPName);
+              return isPlayerNameMatching(player.name, pName) ||
+                     isPlayerNameMatching(player.nombre, pName) ||
+                     isPlayerNameMatching(pFullName, pName);
             });
           } else if (row.player_name) {
-            const cleanName = String(row.player_name).trim().toLowerCase();
-            isParticipant = cleanName === pFullName || cleanName === pFirstName || cleanName.includes(pFirstName);
+            isParticipant = isPlayerNameMatching(player.name, row.player_name) ||
+                            isPlayerNameMatching(player.nombre, row.player_name) ||
+                            isPlayerNameMatching(pFullName, row.player_name);
           }
         } else {
           if (targetPlayerIds.length > 0) {
@@ -556,13 +559,19 @@ export default function TeamRoster({ team, season = '2026/2027', onBack, onSelec
           } else if (participatingPlayers.length > 0) {
             isParticipant = participatingPlayers.some(pName => {
               const cleanPName = String(pName).trim().toLowerCase();
-              return cleanPName === pFullName || cleanPName === pFirstName || cleanPName.includes(pFirstName) || cleanPName.includes('plantilla') || cleanPName.includes('equipo') || cleanPName.includes('grupo');
+              return isPlayerNameMatching(player.name, pName) ||
+                     isPlayerNameMatching(player.nombre, pName) ||
+                     isPlayerNameMatching(pFullName, pName) ||
+                     cleanPName.includes('plantilla') || cleanPName.includes('equipo') || cleanPName.includes('grupo');
             });
           } else if (row.player_id) {
             isParticipant = String(row.player_id).trim() === playerId;
           } else if (row.player_name) {
             const cleanName = String(row.player_name).trim().toLowerCase();
-            isParticipant = cleanName === pFullName || cleanName === pFirstName || cleanName.includes(pFirstName) || cleanName.includes('plantilla') || cleanName.includes('equipo') || cleanName.includes('grupo');
+            isParticipant = isPlayerNameMatching(player.name, row.player_name) ||
+                            isPlayerNameMatching(player.nombre, row.player_name) ||
+                            isPlayerNameMatching(pFullName, row.player_name) ||
+                            cleanName.includes('plantilla') || cleanName.includes('equipo') || cleanName.includes('grupo');
           } else if (row.team_id || row.team) {
             if (player.teamId && (String(row.team_id) === String(player.teamId) || String(row.team) === String(player.teamId))) {
               isParticipant = true;

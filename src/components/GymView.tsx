@@ -220,6 +220,48 @@ const INITIAL_ROUTINES: Routine[] = [];
 
 const INITIAL_SESSIONS: GymSession[] = [];
 
+export const normalizeStringForMatch = (str: string | undefined | null): string => {
+  if (!str) return '';
+  return str
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // remove accents / tildes
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]/g, ' ')
+    .replace(/\s+/g, ' ');
+};
+
+export const isPlayerNameMatching = (candidate: string | undefined | null, target: string | undefined | null): boolean => {
+  const normCand = normalizeStringForMatch(candidate);
+  const normTgt = normalizeStringForMatch(target);
+  if (!normCand || !normTgt) return false;
+  if (normCand === normTgt) return true;
+
+  const candWords = normCand.split(' ').filter(Boolean);
+  const tgtWords = normTgt.split(' ').filter(Boolean);
+
+  if (candWords.length === 0 || tgtWords.length === 0) return false;
+
+  // Single word in candidate: must match a distinct full word in target (exact whole token)
+  if (candWords.length === 1) {
+    return tgtWords.includes(candWords[0]);
+  }
+  // Single word in target: must match a distinct full word in candidate
+  if (tgtWords.length === 1) {
+    return candWords.includes(tgtWords[0]);
+  }
+
+  // Multi-word checks: all words of the shorter name must match full words in the longer name
+  if (candWords.length <= tgtWords.length) {
+    if (candWords.every(w => tgtWords.includes(w))) return true;
+  }
+  if (tgtWords.length <= candWords.length) {
+    if (tgtWords.every(w => candWords.includes(w))) return true;
+  }
+
+  return false;
+};
+
 export default function GymView({ season = '2026/2027', selectedTeam, teams = [] }: GymViewProps) {
   const [activeTab, setActiveTab] = useState<'ejercicios' | 'rutinas' | 'planificacion' | 'cargas'>('ejercicios');
   
@@ -690,10 +732,13 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
     } else if (log.participatingPlayers && log.participatingPlayers.length > 0) {
       const matchedPlayerIds: string[] = [];
       players.forEach(p => {
-        const pName = (p.nombre ? `${p.nombre} ${p.apellidos || ''}` : p.name).toLowerCase().trim();
+        const pFullName = p.nombre ? `${p.nombre} ${p.apellidos || ''}` : p.name;
+        const pInvName = p.apellidos ? `${p.apellidos} ${p.nombre || ''}` : p.name;
         const isMatched = log.participatingPlayers?.some(partName => {
-          const cleanPartName = partName.toLowerCase().trim();
-          return cleanPartName === pName || cleanPartName.includes(pName);
+          return isPlayerNameMatching(p.name, partName) ||
+                 isPlayerNameMatching(p.nombre, partName) ||
+                 isPlayerNameMatching(pFullName, partName) ||
+                 isPlayerNameMatching(pInvName, partName);
         });
         if (isMatched) {
           matchedPlayerIds.push(p.id);
@@ -752,10 +797,13 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
     } else if (log.participatingPlayers && log.participatingPlayers.length > 0) {
       const matchedPlayerIds: string[] = [];
       players.forEach(p => {
-        const pName = (p.nombre ? `${p.nombre} ${p.apellidos || ''}` : p.name).toLowerCase().trim();
+        const pFullName = p.nombre ? `${p.nombre} ${p.apellidos || ''}` : p.name;
+        const pInvName = p.apellidos ? `${p.apellidos} ${p.nombre || ''}` : p.name;
         const isMatched = log.participatingPlayers?.some(partName => {
-          const cleanPartName = partName.toLowerCase().trim();
-          return cleanPartName === pName || cleanPartName.includes(pName);
+          return isPlayerNameMatching(p.name, partName) ||
+                 isPlayerNameMatching(p.nombre, partName) ||
+                 isPlayerNameMatching(pFullName, partName) ||
+                 isPlayerNameMatching(pInvName, partName);
         });
         if (isMatched) {
           matchedPlayerIds.push(p.id);
@@ -1228,16 +1276,6 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
     }
   };
 
-  const normalizeStringForMatch = (str: string | undefined | null): string => {
-    if (!str) return '';
-    return str
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '') // remove accents / tildes
-      .toLowerCase()
-      .trim()
-      .replace(/\s+/g, ' ');
-  };
-
   const isGroupSession = (session: GymSessionLog): boolean => {
     if (session.sessionType === 'group') return true;
     if (session.sessionType === 'individual') return false;
@@ -1252,36 +1290,37 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
     // If it is a group session, do not look up or attach any player photo
     if (isGroupSession(session)) return '';
 
-    const normSessionPlayer = normalizeStringForMatch(session.playerName);
+    const normSessionPlayer = session.playerName ? session.playerName.trim() : '';
     const sessionPlayerId = session.playerId ? String(session.playerId).trim() : '';
 
-    // 1. Try finding in players list by ID or various name permutations
+    // 1. Try finding in players list by ID or token name match
     let matchedPlayer = players.find(p => {
       if (sessionPlayerId && p.id && String(p.id).trim() === sessionPlayerId) return true;
-      const pName = normalizeStringForMatch(p.name);
-      const pFull = normalizeStringForMatch(`${p.nombre || ''} ${p.apellidos || ''}`);
-      const pInv = normalizeStringForMatch(`${p.apellidos || ''} ${p.nombre || ''}`);
-      const pFirst = normalizeStringForMatch(p.nombre);
-      const pLast = normalizeStringForMatch(p.apellidos);
+      if (!normSessionPlayer || normSessionPlayer.toLowerCase() === 'jugadora' || normSessionPlayer.toLowerCase() === 'grupo') return false;
 
-      if (normSessionPlayer && normSessionPlayer !== 'jugadora' && normSessionPlayer !== 'grupo') {
-        if (pName && (pName === normSessionPlayer || pName.includes(normSessionPlayer) || normSessionPlayer.includes(pName))) return true;
-        if (pFull && (pFull === normSessionPlayer || pFull.includes(normSessionPlayer) || normSessionPlayer.includes(pFull))) return true;
-        if (pInv && (pInv === normSessionPlayer || pInv.includes(normSessionPlayer) || normSessionPlayer.includes(pInv))) return true;
-        if (pFirst && normSessionPlayer.split(' ').includes(pFirst)) return true;
-        if (pLast && normSessionPlayer.split(' ').includes(pLast)) return true;
-      }
+      const pFullName = p.nombre ? `${p.nombre} ${p.apellidos || ''}` : p.name;
+      const pInvName = p.apellidos ? `${p.apellidos} ${p.nombre || ''}` : p.name;
+
+      if (isPlayerNameMatching(p.name, normSessionPlayer)) return true;
+      if (isPlayerNameMatching(p.nombre, normSessionPlayer)) return true;
+      if (isPlayerNameMatching(pFullName, normSessionPlayer)) return true;
+      if (isPlayerNameMatching(pInvName, normSessionPlayer)) return true;
       return false;
     });
 
     // 2. Try selectedPlayerForGym if currently viewing this player's profile
     if (!matchedPlayer && selectedPlayerForGym) {
-      const curName = normalizeStringForMatch(selectedPlayerForGym.name);
-      const curFull = normalizeStringForMatch(`${selectedPlayerForGym.nombre || ''} ${selectedPlayerForGym.apellidos || ''}`);
+      const curFullName = selectedPlayerForGym.nombre ? `${selectedPlayerForGym.nombre} ${selectedPlayerForGym.apellidos || ''}` : selectedPlayerForGym.name;
+      const curInvName = selectedPlayerForGym.apellidos ? `${selectedPlayerForGym.apellidos} ${selectedPlayerForGym.nombre || ''}` : selectedPlayerForGym.name;
       if (
         (sessionPlayerId && String(selectedPlayerForGym.id).trim() === sessionPlayerId) ||
-        (normSessionPlayer && (curName === normSessionPlayer || curFull === normSessionPlayer || normSessionPlayer.includes(curName) || curName.includes(normSessionPlayer))) ||
-        (!normSessionPlayer || normSessionPlayer === 'jugadora')
+        (normSessionPlayer && normSessionPlayer.toLowerCase() !== 'jugadora' && (
+          isPlayerNameMatching(selectedPlayerForGym.name, normSessionPlayer) ||
+          isPlayerNameMatching(selectedPlayerForGym.nombre, normSessionPlayer) ||
+          isPlayerNameMatching(curFullName, normSessionPlayer) ||
+          isPlayerNameMatching(curInvName, normSessionPlayer)
+        )) ||
+        (!normSessionPlayer || normSessionPlayer.toLowerCase() === 'jugadora')
       ) {
         matchedPlayer = selectedPlayerForGym;
       }
@@ -2323,12 +2362,8 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
 
                   {(() => {
                     const normSelId = String(selectedPlayerForGym.id || '').trim();
-                    const selNames = [
-                      selectedPlayerForGym.name,
-                      selectedPlayerForGym.nombre,
-                      `${selectedPlayerForGym.nombre || ''} ${selectedPlayerForGym.apellidos || ''}`,
-                      `${selectedPlayerForGym.apellidos || ''} ${selectedPlayerForGym.nombre || ''}`
-                    ].map(normalizeStringForMatch).filter(Boolean);
+                    const selFullName = selectedPlayerForGym.nombre ? `${selectedPlayerForGym.nombre} ${selectedPlayerForGym.apellidos || ''}` : selectedPlayerForGym.name;
+                    const selInvName = selectedPlayerForGym.apellidos ? `${selectedPlayerForGym.apellidos} ${selectedPlayerForGym.nombre || ''}` : selectedPlayerForGym.name;
 
                     const playerLogs = rpeLogs.filter(log => {
                       // Strictly exclude group sessions
@@ -2354,18 +2389,25 @@ export default function GymView({ season = '2026/2027', selectedTeam, teams = []
                       }
 
                       // 3. Match by Player Name
-                      const normLogPlayer = normalizeStringForMatch(log.playerName);
-                      if (normLogPlayer && normLogPlayer !== 'jugadora' && normLogPlayer !== 'grupo') {
-                        if (selNames.some(sn => sn === normLogPlayer || sn.includes(normLogPlayer) || normLogPlayer.includes(sn))) {
+                      const logPlayerName = (log.playerName || '').trim();
+                      if (logPlayerName && logPlayerName.toLowerCase() !== 'jugadora' && logPlayerName.toLowerCase() !== 'grupo') {
+                        if (
+                          isPlayerNameMatching(selectedPlayerForGym.name, logPlayerName) ||
+                          isPlayerNameMatching(selectedPlayerForGym.nombre, logPlayerName) ||
+                          isPlayerNameMatching(selFullName, logPlayerName) ||
+                          isPlayerNameMatching(selInvName, logPlayerName)
+                        ) {
                           return true;
                         }
                       }
 
                       // 4. Match if participating players list includes this player
                       if (log.participatingPlayers && log.participatingPlayers.length > 0) {
-                        const isPlayerInParticipants = log.participatingPlayers.some(pName => {
-                          const normPName = normalizeStringForMatch(pName);
-                          return selNames.some(sn => sn === normPName || sn.includes(normPName) || normPName.includes(sn));
+                        const isPlayerInParticipants = log.participatingPlayers.some(partName => {
+                          return isPlayerNameMatching(selectedPlayerForGym.name, partName) ||
+                                 isPlayerNameMatching(selectedPlayerForGym.nombre, partName) ||
+                                 isPlayerNameMatching(selFullName, partName) ||
+                                 isPlayerNameMatching(selInvName, partName);
                         });
                         if (isPlayerInParticipants) return true;
                       }

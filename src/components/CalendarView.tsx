@@ -40,6 +40,7 @@ export interface MatchEvent {
   status: 'upcoming' | 'finished';
   homeScore: number | null;
   awayScore: number | null;
+  jornada?: string;
   notes?: string;
 }
 
@@ -57,8 +58,8 @@ export default function CalendarView({ season, selectedTeam, teams }: CalendarVi
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedDayEvents, setSelectedDayEvents] = useState<{ dateIso: string; events: MatchEvent[] } | null>(null);
 
-  // Current calendar month/year state (Default August 2026)
-  const [currentDate, setCurrentDate] = useState(new Date(2026, 7, 1)); // August 2026
+  // Current calendar month/year state (Default to current date)
+  const [currentDate, setCurrentDate] = useState(new Date());
 
   const initialMatches: MatchEvent[] = [
     {
@@ -153,6 +154,7 @@ export default function CalendarView({ season, selectedTeam, teams }: CalendarVi
     status: m.status === 'finished' ? 'finished' : 'upcoming',
     homeScore: m.home_score !== undefined && m.home_score !== null ? m.home_score : (m.homeScore !== undefined ? m.homeScore : null),
     awayScore: m.away_score !== undefined && m.away_score !== null ? m.away_score : (m.awayScore !== undefined ? m.awayScore : null),
+    jornada: m.jornada || '',
     notes: m.notes || ''
   });
 
@@ -209,7 +211,8 @@ export default function CalendarView({ season, selectedTeam, teams }: CalendarVi
     team: selectedTeam ? selectedTeam.name : 'ATB FEMENINO A',
     status: 'upcoming' as 'upcoming' | 'finished',
     homeScore: '' as string | number,
-    awayScore: '' as string | number
+    awayScore: '' as string | number,
+    jornada: ''
   });
 
   const handleOpenAddModal = (presetDateIso?: string) => {
@@ -224,7 +227,8 @@ export default function CalendarView({ season, selectedTeam, teams }: CalendarVi
       team: selectedTeam ? selectedTeam.name : 'ATB FEMENINO A',
       status: 'upcoming',
       homeScore: '',
-      awayScore: ''
+      awayScore: '',
+      jornada: ''
     });
     setShowAddModal(true);
   };
@@ -241,7 +245,8 @@ export default function CalendarView({ season, selectedTeam, teams }: CalendarVi
       team: match.team,
       status: match.status,
       homeScore: match.homeScore !== null && match.homeScore !== undefined ? match.homeScore : '',
-      awayScore: match.awayScore !== null && match.awayScore !== undefined ? match.awayScore : ''
+      awayScore: match.awayScore !== null && match.awayScore !== undefined ? match.awayScore : '',
+      jornada: match.jornada || ''
     });
     setShowAddModal(true);
   };
@@ -274,7 +279,8 @@ export default function CalendarView({ season, selectedTeam, teams }: CalendarVi
         team: newMatch.team || (selectedTeam ? selectedTeam.name : 'ATB FEMENINO A'),
         status: newMatch.status,
         homeScore: homeScoreVal,
-        awayScore: awayScoreVal
+        awayScore: awayScoreVal,
+        jornada: newMatch.jornada
       };
 
       setMatchesList(prev => prev.map(m => m.id === editingMatchId ? updatedMatch : m));
@@ -291,6 +297,7 @@ export default function CalendarView({ season, selectedTeam, teams }: CalendarVi
           status: updatedMatch.status,
           home_score: updatedMatch.homeScore,
           away_score: updatedMatch.awayScore,
+          jornada: updatedMatch.jornada,
           season: season
         };
 
@@ -323,7 +330,8 @@ export default function CalendarView({ season, selectedTeam, teams }: CalendarVi
         team: selectedTeam ? selectedTeam.name : (newMatch.homeTeam.includes('ATB') ? newMatch.homeTeam : 'ATB FEMENINO A'),
         status: newMatch.status,
         homeScore: homeScoreVal,
-        awayScore: awayScoreVal
+        awayScore: awayScoreVal,
+        jornada: newMatch.jornada
       };
 
       setMatchesList(prev => [created, ...prev]);
@@ -341,6 +349,7 @@ export default function CalendarView({ season, selectedTeam, teams }: CalendarVi
           status: created.status,
           home_score: created.homeScore,
           away_score: created.awayScore,
+          jornada: created.jornada,
           season: season
         };
 
@@ -415,7 +424,7 @@ export default function CalendarView({ season, selectedTeam, teams }: CalendarVi
   };
 
   const goToToday = () => {
-    setCurrentDate(new Date(2026, 7, 1)); // Set to August 2026 for active season context or current date
+    setCurrentDate(new Date());
   };
 
   // Calendar Math
@@ -706,6 +715,14 @@ export default function CalendarView({ season, selectedTeam, teams }: CalendarVi
                       <span className="text-[10px] font-extrabold text-sky-700 bg-sky-50 px-2 py-0.5 rounded uppercase">
                         {m.type}
                       </span>
+                      {m.jornada && (
+                        <>
+                          <span className="text-slate-300">·</span>
+                          <span className="text-[10px] font-extrabold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded uppercase">
+                            Jornada {m.jornada}
+                          </span>
+                        </>
+                      )}
                     </div>
 
                     <h4 className="text-lg sm:text-xl font-black text-slate-900">
@@ -965,6 +982,20 @@ export default function CalendarView({ season, selectedTeam, teams }: CalendarVi
                   placeholder="Ej: Liga 2ª RFEF, Amistoso..."
                   value={newMatch.type}
                   onChange={(e) => setNewMatch({ ...newMatch, type: e.target.value })}
+                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm font-bold text-slate-900 focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none transition-all bg-slate-50/50"
+                />
+              </div>
+
+              {/* Jornada */}
+              <div>
+                <label className="block text-xs font-extrabold text-slate-700 uppercase tracking-wide mb-1.5">
+                  Jornada (Opcional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ej: 1, 2, Final..."
+                  value={newMatch.jornada}
+                  onChange={(e) => setNewMatch({ ...newMatch, jornada: e.target.value })}
                   className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm font-bold text-slate-900 focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none transition-all bg-slate-50/50"
                 />
               </div>
